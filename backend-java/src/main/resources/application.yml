@@ -1,9 +1,61 @@
 spring:
   application:
     name: backend-java
+  datasource:
+    url: jdbc:mysql://localhost:3306/data_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 10
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      pool-name: DataAgentHikariCP
+
+mybatis:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.dataagent.platform.modules.auth.domain.po
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    call-setters-on-nulls: true
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.dataagent.platform.modules.auth.domain.po
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    jdbc-type-for-null: "NULL"
+    call-setters-on-nulls: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      insert-strategy: not_null
+      update-strategy: not_null
+      where-strategy: not_null
 
 server:
   port: 8080
+
+logging:
+  file:
+    name: logs/backend-java/backend-java.log
+  level:
+    root: INFO
+    com.dataagent.platform: INFO
+    com.dataagent.platform.modules.auth: DEBUG
+    org.mybatis: INFO
+    com.baomidou.mybatisplus: INFO
+    com.zaxxer.hikari: INFO
+    org.springframework.security: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
 management:
   endpoints:
@@ -11,3 +63,12 @@ management:
       exposure:
         include: health,info
 
+jwt:
+  algorithm: RS256
+  private-key-path: classpath:keys/jwt-private.pem
+  public-key-path: classpath:keys/jwt-public.pem
+  access-token-expire: 15m
+  refresh-token-expire: 7d
+  issuer: data-agent-backend
+  header: Authorization
+  prefix: Bearer

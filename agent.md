@@ -261,6 +261,14 @@ Preferred layering inside each module:
 - `dto`
 - `config`
 
+Utility-class rule:
+
+- when a function is reused or is clearly cross-class helper logic, create a dedicated utility package such as `util` under the relevant module
+- utility classes must follow normal code standards: single responsibility, explicit naming, stateless behavior where possible, and clear visibility boundaries
+- utility classes must remain highly readable and low-coupling; helper logic should be easy to scan, avoid hidden side effects, and should not pull unrelated module dependencies into a shared helper
+- module-local utility code should stay inside that module; only cross-module infrastructure-style helpers may move to `common/*`
+- do not create vague catch-all utility classes when the behavior belongs in `service`, `domain`, `repository`, or `config`
+
 ### 11.2 Python runtime
 
 `backend-agent` should remain isolated by package:
@@ -373,11 +381,133 @@ All implementation work should prefer:
 Avoid:
 
 - giant catch-all utility packages
+- vague `Utils` dumping grounds; if helper logic is needed, place it in a clearly named utility class under a dedicated utility package
 - hidden implicit behavior
 - undocumented permission shortcuts
 - coupling frontend directly to Python internals
 
-## 15. Non-Goals
+## 15. Git and GitHub Workflow Rules
+
+This repository follows a controlled Git and GitHub workflow.
+
+### 15.1 Branch rules
+
+- `main` is the default integration branch
+- do not develop large features directly on `main`
+- create a feature branch for non-trivial work
+- recommended branch prefixes:
+  - `feat/`
+  - `fix/`
+  - `refactor/`
+  - `docs/`
+  - `chore/`
+  - `test/`
+
+Recommended branch examples:
+
+- `feat/sse-streaming`
+- `fix/sql-guard-timeout`
+- `refactor/java-module-layering`
+
+### 15.2 Commit rules
+
+Commits should use a Conventional Commits style.
+
+Recommended commit types:
+
+- `feat`
+- `fix`
+- `refactor`
+- `docs`
+- `chore`
+- `test`
+- `build`
+- `ci`
+
+Commit format:
+
+```text
+type: short summary
+type(scope): short summary
+```
+
+Examples:
+
+- `feat: add task streaming endpoint`
+- `fix(agent): reject unsafe SQL tokens`
+- `docs: update architecture baseline`
+
+Commit rules:
+
+- one commit should represent one coherent change set
+- do not mix unrelated refactors and feature work in the same commit
+- when code changes require `agent.md` or `docs` updates, include them in the same commit
+- commit messages must be concise and explain intent, not just implementation detail
+
+### 15.3 Staging rules
+
+- stage only files that belong to the current change
+- do not silently include unrelated local changes
+- prefer explicit staging when the working tree contains mixed work
+- avoid large formatting-only commits unless they were explicitly intended
+
+### 15.4 Push rules
+
+- push feature work to a branch first unless the repository state clearly allows direct `main` updates
+- do not force-push shared branches unless explicitly approved
+- do not rewrite published history on `main`
+- before push, verify that required docs and `agent.md` updates are included
+
+### 15.5 Pull request rules
+
+- prefer pull requests for non-trivial changes
+- default to draft pull requests unless the work is clearly ready
+- PR title should summarize the user-visible or architecture-visible change
+- PR description should cover:
+  - what changed
+  - why it changed
+  - impact
+  - validation performed
+
+### 15.6 Validation rules before commit or push
+
+Before publishing code, the acting agent should run the most relevant checks available for the affected modules.
+
+Typical expectations:
+
+- frontend changes:
+  - type-check
+  - build or lint when available
+- Java changes:
+  - compile or test relevant modules
+- Python changes:
+  - unit or integration tests relevant to the change
+
+If checks are not run, the reason must be stated explicitly.
+
+### 15.7 GitHub repository hygiene
+
+- keep `README.md`, root `agent.md`, and affected local `agent.md` files aligned with the current codebase
+- do not leave architecture migrations half-reflected between code and docs
+- do not merge code that weakens the permission model without explicit approval
+- treat GitHub history as part of the project documentation
+
+### 15.8 Automatic evolution of workflow rules
+
+These GitHub workflow rules may be automatically updated when:
+
+- the repository adopts a stable branching model
+- CI requirements become concrete
+- PR templates or release rules become part of normal development
+- commit conventions are tightened by repeated team practice
+
+These workflow rules must not be automatically changed when the change would:
+
+- weaken review discipline
+- allow direct unsafe pushes to protected branches
+- relax documentation-update requirements
+
+## 16. Non-Goals
 
 The MVP should not attempt:
 
@@ -387,7 +517,7 @@ The MVP should not attempt:
 - automatic write-back to operational databases
 - architecture churn without clear value
 
-## 16. Definition of Done
+## 17. Definition of Done
 
 A meaningful MVP is done when the repository can:
 

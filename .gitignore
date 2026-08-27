@@ -29,4 +29,7 @@ backend-agent/**/*.pyc
 
 # Logs
 *.log
+logs/
 
+# Local secrets
+backend-java/src/main/resources/keys/*.pem
