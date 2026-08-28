@@ -5,6 +5,7 @@ import com.dataagent.platform.common.security.TaskAccessContext;
 import com.dataagent.platform.common.web.ApiException;
 import com.dataagent.platform.common.web.ApiStatusCode;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
+import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
@@ -14,6 +15,8 @@ import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
 import com.dataagent.platform.modules.auth.domain.model.AuthSession;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 import com.dataagent.platform.modules.auth.domain.model.JwtUserClaims;
+import com.dataagent.platform.modules.auth.domain.po.AuthLoginLogPO;
+import com.dataagent.platform.modules.auth.mapper.AuthLoginLogMapper;
 import com.dataagent.platform.modules.auth.repository.AuthRepository;
 import com.dataagent.platform.modules.auth.service.AuthService;
 import com.dataagent.platform.modules.auth.service.AuthTokenStoreService;
@@ -25,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -42,9 +46,10 @@ public class AuthServiceImpl implements AuthService {
     private final AuthTokenStoreService authTokenStoreService;
     private final JwtTokenService jwtTokenService;
     private final PasswordEncoder passwordEncoder;
+    private final AuthLoginLogMapper authLoginLogMapper;
 
     @Override
-    public TokenResponse register(AuthRegisterDTO request) {
+    public TokenResponse register(AuthRegisterDTO request, AuthRequestMetadata requestMetadata) {
         if (request == null) {
             throw new ApiException(ApiStatusCode.BAD_REQUEST, "注册请求不能为空。");
         }
@@ -93,34 +98,47 @@ public class AuthServiceImpl implements AuthService {
                 passwordEncoder.encode(password)
         );
 
+        LocalDateTime loginAt = LocalDateTime.now();
+        recordLoginSuccess(user.userId(), requestMetadata, loginAt);
+        recordLoginAudit(user, requestMetadata, loginAt);
         log.info("User registered successfully, userId={}", user.userId());
         return toTokenResponse(createPersistedSession(user));
     }
 
     @Override
-    public Optional<TokenResponse> login(LoginRequest request) {
+    public Optional<TokenResponse> login(LoginRequest request, AuthRequestMetadata requestMetadata) {
         if (request == null || isBlank(request.username()) || isBlank(request.password())) {
             log.warn("Login request rejected because username or password is blank");
             return Optional.empty();
         }
 
-        return authRepository.findByIdentifier(normalize(request.username()))
-                .map(user -> {
-                    log.debug("Found user for login identifier={}", request.username());
-                    return user;
-                })
-                .filter(user -> passwordMatches(request.password(), user.passwordHash()))
-                .filter(user -> "ACTIVE".equalsIgnoreCase(user.status()))
-                .map(this::createPersistedSession)
-                .map(session -> {
-                    log.info("Login succeeded for userId={}", session.user().userId());
-                    return session;
-                })
-                .map(this::toTokenResponse)
-                .or(() -> {
-                    log.warn("Login failed for identifier={}", request.username());
-                    return Optional.empty();
-                });
+        String identifier = normalize(request.username());
+        Optional<AuthUser> userOptional = authRepository.findByIdentifier(identifier);
+        if (userOptional.isEmpty()) {
+            log.warn("Login failed for identifier={}, reason=USER_NOT_FOUND", request.username());
+            return Optional.empty();
+        }
+
+        AuthUser user = userOptional.orElseThrow();
+        log.debug("Found user for login identifier={}", request.username());
+
+        if (!passwordMatches(request.password(), user.passwordHash())) {
+            log.warn("Login failed for identifier={}, reason=INVALID_PASSWORD", request.username());
+            return Optional.empty();
+        }
+
+        if (!"ACTIVE".equalsIgnoreCase(user.status())) {
+            String failureReason = "USER_STATUS_" + normalizeStatus(user.status());
+            log.warn("Login failed for identifier={}, reason={}", request.username(), failureReason);
+            return Optional.empty();
+        }
+
+        LocalDateTime loginAt = LocalDateTime.now();
+        recordLoginSuccess(user.userId(), requestMetadata, loginAt);
+        recordLoginAudit(user, requestMetadata, loginAt);
+        AuthSession session = createPersistedSession(user);
+        log.info("Login succeeded for userId={}", session.user().userId());
+        return Optional.of(toTokenResponse(session));
     }
 
     @Override
@@ -235,6 +253,28 @@ public class AuthServiceImpl implements AuthService {
         return session;
     }
 
+    private void recordLoginSuccess(String userId, AuthRequestMetadata requestMetadata, LocalDateTime loginAt) {
+        if (isBlank(userId)) {
+            return;
+        }
+
+        authRepository.updateLoginSuccess(
+                userId,
+                loginAt,
+                normalizeNullable(requestMetadata == null ? null : requestMetadata.clientPublicIp())
+        );
+    }
+
+    private void recordLoginAudit(AuthUser user, AuthRequestMetadata requestMetadata, LocalDateTime loginAt) {
+        AuthLoginLogPO loginLog = new AuthLoginLogPO();
+        loginLog.setUserId(parseLongOrNull(user.userId()));
+        loginLog.setUsername(normalizeNullable(user.username()));
+        loginLog.setClientPublicIp(normalizeNullable(requestMetadata == null ? null : requestMetadata.clientPublicIp()));
+        loginLog.setUserAgent(normalizeNullable(requestMetadata == null ? null : requestMetadata.userAgent()));
+        loginLog.setLoginAt(loginAt);
+        authLoginLogMapper.insert(loginLog);
+    }
+
     private boolean isAccessTokenUsable(JwtUserClaims claims) {
         boolean blacklisted = authTokenStoreService.isAccessTokenBlacklisted(claims.userId(), claims.tokenId());
         if (blacklisted) {
@@ -330,5 +370,23 @@ public class AuthServiceImpl implements AuthService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private Long parseLongOrNull(String value) {
+        String normalized = normalizeNullable(value);
+        if (normalized == null) {
+            return null;
+        }
+
+        try {
+            return Long.valueOf(normalized);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeStatus(String status) {
+        String normalized = normalizeNullable(status);
+        return normalized == null ? "UNKNOWN" : normalized.toUpperCase();
     }
 }

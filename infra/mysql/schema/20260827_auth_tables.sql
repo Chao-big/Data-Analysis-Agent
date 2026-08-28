@@ -32,19 +32,17 @@ CREATE TABLE IF NOT EXISTS auth_user (
 
 CREATE TABLE IF NOT EXISTS auth_login_log (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'Primary key',
-    user_id BIGINT NULL COMMENT 'User ID when matched',
-    username VARCHAR(64) NOT NULL COMMENT 'Submitted username',
-    login_result VARCHAR(32) NOT NULL COMMENT 'SUCCESS or FAILED',
-    failure_reason VARCHAR(255) NULL COMMENT 'Failure reason when login failed',
-    client_ip VARCHAR(64) NULL COMMENT 'Client IP',
+    user_id BIGINT NOT NULL COMMENT 'Authenticated user ID',
+    username VARCHAR(64) NOT NULL COMMENT 'Authenticated username',
+    client_public_ip VARCHAR(64) NULL COMMENT 'Browser public IP or trusted proxy source IP',
     user_agent VARCHAR(512) NULL COMMENT 'Client user agent',
-    login_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Login attempt time',
+    login_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Successful login time',
     PRIMARY KEY (id),
     KEY idx_auth_login_log_user_id (user_id),
     KEY idx_auth_login_log_username (username),
-    KEY idx_auth_login_log_result (login_result),
     KEY idx_auth_login_log_login_at (login_at),
-    KEY idx_auth_login_log_user_result_time (user_id, login_result, login_at)
+    KEY idx_auth_login_log_user_time (user_id, login_at),
+    KEY idx_auth_login_log_public_ip (client_public_ip)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
