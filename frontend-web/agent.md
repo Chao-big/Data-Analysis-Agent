@@ -6,8 +6,14 @@
 
 This directory is responsible for:
 
+- login and local prototype session entry
+- login and registration UI
+- workbench dashboard and task state views
 - dataset upload and registration UI
+- dataset management and preview UI
 - task creation UI
+- task history and trace inspection UI
+- personal profile and security notice UI
 - SSE-based task progress display
 - SQL review and approval UI
 - chart and result rendering
@@ -23,28 +29,29 @@ This directory is not responsible for:
 
 ## 2. Required Stack
 
-- `Next.js`
+- `Vue 3`
+- `Vite`
 - `TypeScript`
 - `Tailwind CSS`
 - `ECharts`
 
 Rules:
 
-- use `App Router`
-- prefer server components by default
-- use client components only for interaction, streaming, and chart rendering
-- keep domain types centralized under `lib/`
+- use `Vue Router` for page routing
+- use Composition API and typed reactive state
+- keep shared domain types and mock contracts centralized under `src/lib/`
+- prefer mock-first UI contracts that can be replaced by Java backend APIs later
 
 ## 3. Module Boundaries
 
-- `app/`
-  - routing, layouts, pages, route handlers when truly frontend-local
-- `components/`
+- `src/pages/`
+  - route-level page entries
+- `src/components/`
   - reusable UI components only
-- `features/`
-  - feature-oriented UI composition, such as upload, review, stream, charts
-- `lib/`
-  - frontend utilities, typed contracts, formatters, API clients
+- `src/lib/`
+  - frontend utilities, typed contracts, mock data, store, formatters, API adapters
+- `src/`
+  - app bootstrap, router, shared styles
 
 Do not place backend business logic in UI components.
 
@@ -71,6 +78,14 @@ Do not place backend business logic in UI components.
 - avoid hardcoding backend response shapes in multiple places
 - use explicit loading, error, empty, and review-required states
 - charts must render from structured config, not ad hoc string parsing
+- current page set is:
+  - `/login`
+  - `/register`
+  - `/`
+  - `/datasets`
+  - `/history`
+  - `/profile`
+- prototype login may use local mock session state, but production auth remains Java-owned
 
 ## 7. Self-Evolution Rules
 

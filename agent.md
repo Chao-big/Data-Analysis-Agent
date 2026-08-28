@@ -256,10 +256,18 @@ Preferred layering inside each module:
 
 - `controller`
 - `service`
+- `service/impl`
 - `repository`
 - `domain`
 - `dto`
 - `config`
+
+Service-layer contract:
+
+- service interfaces must be declared under the module `service` package
+- concrete service implementations must be placed under `service/impl`
+- controllers and other collaborating classes should depend on service interfaces, not implementation classes
+- when a service also satisfies a shared cross-module contract, the implementation class may implement both the module service interface and the shared contract interface
 
 Utility-class rule:
 
@@ -385,6 +393,7 @@ Avoid:
 - hidden implicit behavior
 - undocumented permission shortcuts
 - coupling frontend directly to Python internals
+- injecting module service implementation classes directly when a stable service interface should exist
 
 ## 15. Git and GitHub Workflow Rules
 

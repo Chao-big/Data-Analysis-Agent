@@ -35,7 +35,7 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.GET, "/api/gateway/health").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/context-demo").permitAll()
                         .requestMatchers("/api/auth/**").authenticated()
                         .requestMatchers("/api/datasets/**", "/api/jobs/**").hasAnyRole("ANALYST", "ADMIN")

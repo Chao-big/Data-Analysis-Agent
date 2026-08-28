@@ -7,8 +7,10 @@ import com.dataagent.platform.common.web.ApiException;
 import com.dataagent.platform.common.web.ApiResponse;
 import com.dataagent.platform.common.web.ApiStatusCode;
 import com.dataagent.platform.modules.auth.domain.dto.AccessContextRequest;
+import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
+import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
 import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
 import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
@@ -31,23 +33,30 @@ public class AuthController {
     private final AuthService authService;
     private final SecurityAccessContextHolder securityAccessContextHolder;
 
+    @PostMapping("/register")
+    public ApiResponse<TokenResponse> register(@RequestBody AuthRegisterDTO request) {
+        log.debug("Received register request for username={}", request == null ? null : request.username());
+        return ApiResponse.ok(authService.register(request));
+    }
+
     @PostMapping("/login")
     public ApiResponse<TokenResponse> login(@RequestBody LoginRequest request) {
         log.debug("Received login request for username={}", request == null ? null : request.username());
         return authService.login(request)
                 .map(ApiResponse::ok)
-                .orElseThrow(() -> new ApiException(ApiStatusCode.UNAUTHORIZED, "invalid username or password"));
+                .orElseThrow(() -> new ApiException(ApiStatusCode.UNAUTHORIZED, "账号或密码错误。"));
     }
 
     @PostMapping("/logout")
     public ApiResponse<LogoutResponse> logout(
-            @AuthenticationPrincipal AuthenticatedUserPrincipal principal
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal,
+            @RequestBody(required = false) LogoutRequest request
     ) {
         log.debug("Received logout request");
         if (principal == null) {
             throw new ApiException(ApiStatusCode.UNAUTHORIZED, "login required");
         }
-        return ApiResponse.ok(authService.logout(principal.accessToken()));
+        return ApiResponse.ok(authService.logout(principal.accessToken(), request));
     }
 
     @PostMapping("/refresh")

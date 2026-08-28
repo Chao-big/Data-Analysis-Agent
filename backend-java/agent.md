@@ -64,6 +64,7 @@ Recommended internal layering per module:
 
 - `controller`
 - `service`
+- `service/impl`
 - `repository`
 - `domain`
 - `dto`
@@ -89,6 +90,9 @@ Do not delegate final authorization decisions to Python.
 ## 6. Development Rules
 
 - do not collapse module boundaries into a giant `service` package
+- define module service interfaces in `service/`
+- place concrete service implementations in `service/impl/`
+- prefer injecting service interfaces into controllers and peer services
 - shared code in `common/` must remain infrastructure-oriented
 - business rules should live in module services, not controllers
 - controllers should return typed DTOs

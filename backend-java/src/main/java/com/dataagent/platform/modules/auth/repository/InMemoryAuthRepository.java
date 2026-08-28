@@ -1,13 +1,12 @@
 package com.dataagent.platform.modules.auth.repository;
 
+import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
-import org.springframework.stereotype.Repository;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-@Repository
 public class InMemoryAuthRepository implements AuthRepository {
 
     private final Map<String, AuthUser> usersByUsername = Map.of(
@@ -42,8 +41,22 @@ public class InMemoryAuthRepository implements AuthRepository {
                     Set.of("phone", "id_card", "bank_account")
             )
     );
+
     private final Map<String, AuthUser> usersByUserId = usersByUsername.values().stream()
             .collect(java.util.stream.Collectors.toUnmodifiableMap(AuthUser::userId, user -> user));
+
+    @Override
+    public Optional<AuthUser> findByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+
+        return usersByUsername.values().stream()
+                .filter(user -> identifier.equalsIgnoreCase(user.username())
+                        || identifier.equalsIgnoreCase(user.email())
+                        || identifier.equalsIgnoreCase(user.phone()))
+                .findFirst();
+    }
 
     @Override
     public Optional<AuthUser> findByUsername(String username) {
@@ -51,7 +64,34 @@ public class InMemoryAuthRepository implements AuthRepository {
     }
 
     @Override
+    public Optional<AuthUser> findByEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return Optional.empty();
+        }
+
+        return usersByUsername.values().stream()
+                .filter(user -> email.equalsIgnoreCase(user.email()))
+                .findFirst();
+    }
+
+    @Override
+    public Optional<AuthUser> findByPhone(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return Optional.empty();
+        }
+
+        return usersByUsername.values().stream()
+                .filter(user -> phone.equalsIgnoreCase(user.phone()))
+                .findFirst();
+    }
+
+    @Override
     public Optional<AuthUser> findByUserId(String userId) {
         return Optional.ofNullable(usersByUserId.get(userId));
+    }
+
+    @Override
+    public AuthUser create(AuthRegisterDTO request, String passwordHash) {
+        throw new UnsupportedOperationException("in-memory auth repository does not support registration");
     }
 }
