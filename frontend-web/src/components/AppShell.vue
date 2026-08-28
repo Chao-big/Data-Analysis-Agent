@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { logoutSession } from "../lib/auth";
 import { workspaceStore } from "../lib/workspace-store";
@@ -35,29 +35,61 @@ const pageMeta: Record<string, { title: string; description: string }> = {
 
 const isWorkbench = computed(() => route.path === "/");
 const meta = computed(() => pageMeta[route.path] ?? pageMeta["/"]);
+const userMenuOpen = ref(false);
+const userMenuRef = ref<HTMLElement | null>(null);
+
+function toggleUserMenu() {
+  userMenuOpen.value = !userMenuOpen.value;
+}
+
+function closeUserMenu() {
+  userMenuOpen.value = false;
+}
+
+function handleWindowClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+
+  if (!userMenuRef.value?.contains(target)) {
+    closeUserMenu();
+  }
+}
+
+function goToProfile() {
+  closeUserMenu();
+  router.push("/profile");
+}
+
+async function handleLogout() {
+  closeUserMenu();
+  await logoutSession();
+  await router.replace("/login");
+}
+
+watch(
+  () => route.fullPath,
+  () => {
+    closeUserMenu();
+  },
+);
+
+onMounted(() => {
+  window.addEventListener("click", handleWindowClick);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("click", handleWindowClick);
+});
 </script>
 
 <template>
-  <div class="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(34,197,184,0.12),transparent_22%),radial-gradient(circle_at_bottom_right,rgba(14,116,144,0.1),transparent_26%),linear-gradient(180deg,#f6fbfc_0%,#edf4f6_54%,#f8fbfc_100%)]">
-    <div class="mx-auto flex min-h-screen w-full max-w-[1680px] gap-3 px-3 py-3 lg:px-4">
-      <aside class="hidden w-[212px] shrink-0 flex-col rounded-[28px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(242,248,250,0.93))] p-3 shadow-[0_24px_60px_rgba(15,23,42,0.06)] lg:flex">
-        <div class="rounded-[22px] border border-[#dce8ee] bg-[linear-gradient(145deg,#ffffff_0%,#edf8f7_100%)] p-3.5">
-          <div class="flex items-center gap-3">
-            <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0f8b8d,#34c7b8)] text-white shadow-[0_14px_28px_rgba(15,139,141,0.24)]">
-              <svg viewBox="0 0 24 24" class="h-5 w-5 fill-none stroke-current stroke-[1.8]">
-                <rect x="3.5" y="6.5" width="17" height="11" rx="3" />
-                <path d="M7 14v-3M12 14V9M17 14v-5" />
-                <path d="M8.5 18.5h7" />
-              </svg>
-            </div>
-            <div>
-              <div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#167d7a]">Data Analysis Agent</div>
-              <div class="mt-1 text-lg font-semibold text-[#102038]">企业分析台</div>
-            </div>
-          </div>
-          <p class="mt-4 text-sm leading-7 text-[#5f7388]">
-            面向企业场景的智能分析入口，聚合提问、结果回放和 SQL 审计。
-          </p>
+  <div class="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(34,197,184,0.12),transparent_22%),radial-gradient(circle_at_bottom_right,rgba(14,116,144,0.1),transparent_26%),linear-gradient(180deg,#f6fbfc_0%,#edf4f6_54%,#f8fbfc_100%)]">
+    <div class="flex h-full w-full gap-3 overflow-hidden p-0">
+      <aside class="hidden min-h-0 w-[212px] shrink-0 flex-col rounded-[28px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(242,248,250,0.93))] p-3 shadow-[0_24px_60px_rgba(15,23,42,0.06)] lg:flex">
+        <div class="rounded-[22px] border border-[#dce8ee] bg-[linear-gradient(145deg,#ffffff_0%,#edf8f7_100%)] px-4 py-4 text-center">
+          <div class="whitespace-nowrap text-lg font-semibold text-[#102038]">数据分析工作台</div>
         </div>
 
         <nav class="mt-3 space-y-1.5">
@@ -104,33 +136,9 @@ const meta = computed(() => pageMeta[route.path] ?? pageMeta["/"]);
             </span>
           </RouterLink>
         </nav>
-
-        <div class="mt-auto rounded-[22px] border border-[#dce8ee] bg-white/92 p-3.5">
-          <div class="flex items-center gap-3">
-            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0f8b8d,#34c7b8)] text-sm font-semibold text-white">
-              {{ workspaceStore.currentUser.displayName.slice(0, 1) }}
-            </div>
-            <div class="min-w-0">
-              <div class="truncate text-sm font-semibold text-[#102038]">{{ workspaceStore.currentUser.displayName }}</div>
-              <div class="truncate text-xs text-[#7e91a5]">{{ workspaceStore.currentUser.username }}</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            class="mt-3 w-full rounded-2xl border border-[#dce8ee] bg-[#f7fafc] px-4 py-2.5 text-sm font-medium text-[#496076] transition hover:bg-white"
-            @click="
-              () => {
-                logoutSession();
-                router.replace('/login');
-              }
-            "
-          >
-            退出登录
-          </button>
-        </div>
       </aside>
 
-      <div class="flex min-w-0 flex-1 flex-col gap-3">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
         <header
           v-if="!isWorkbench"
           class="rounded-[28px] border border-white/80 bg-white/88 px-5 py-3.5 shadow-[0_18px_48px_rgba(15,23,42,0.05)] backdrop-blur"
@@ -149,9 +157,68 @@ const meta = computed(() => pageMeta[route.path] ?? pageMeta["/"]);
           </div>
         </header>
 
-        <main class="min-h-0 flex-1">
+        <main class="min-h-0 flex-1 overflow-hidden">
           <slot />
         </main>
+      </div>
+
+      <div ref="userMenuRef" class="fixed right-5 top-5 z-50">
+        <button
+          type="button"
+          class="flex items-center gap-3 px-1 py-1 transition"
+          @click.stop="toggleUserMenu"
+        >
+          <div class="flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0f8b8d,#34c7b8)] text-sm font-semibold text-white">
+            {{ workspaceStore.currentUser.displayName.slice(0, 1) }}
+          </div>
+          <div class="min-w-0 text-left">
+            <div class="max-w-[120px] truncate text-sm font-semibold leading-tight text-[#102038]">
+              {{ workspaceStore.currentUser.displayName }}
+            </div>
+          </div>
+          <svg
+            viewBox="0 0 20 20"
+            class="h-4 w-4 shrink-0 text-[#6b8196] transition"
+            :class="userMenuOpen ? 'rotate-180' : ''"
+          >
+            <path d="M5.5 7.5 10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+          </svg>
+        </button>
+
+        <div
+          v-if="userMenuOpen"
+          class="mt-2 w-[220px] rounded-[22px] border border-white/80 bg-white/96 p-2 shadow-[0_20px_40px_rgba(15,23,42,0.12)] backdrop-blur"
+        >
+          <div class="border-b border-[#e7eef2] px-3 pb-3 pt-2">
+            <div class="text-sm font-semibold text-[#102038]">{{ workspaceStore.currentUser.displayName }}</div>
+            <div class="mt-1 text-xs text-[#7e91a5]">{{ workspaceStore.currentUser.username }}</div>
+          </div>
+
+          <div class="pt-2">
+            <button
+              type="button"
+              class="flex w-full items-center justify-between rounded-[16px] px-3 py-2.5 text-left text-sm font-medium text-[#34495e] transition hover:bg-[#f4f8fa]"
+              @click="goToProfile"
+            >
+              <span>个人中心</span>
+              <svg viewBox="0 0 20 20" class="h-4 w-4 text-[#91a2b1]">
+                <path d="M7.5 5.5 12 10l-4.5 4.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center justify-between rounded-[16px] px-3 py-2.5 text-left text-sm font-medium text-[#34495e] transition hover:bg-[#fdf3f1] hover:text-[#b65446]"
+              @click="handleLogout"
+            >
+              <span>退出登录</span>
+              <svg viewBox="0 0 20 20" class="h-4 w-4 text-current">
+                <path d="M8 5.5H6.5A1.5 1.5 0 0 0 5 7v6a1.5 1.5 0 0 0 1.5 1.5H8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" />
+                <path d="M10 7.5 13 10l-3 2.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" />
+                <path d="M13 10H8.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
