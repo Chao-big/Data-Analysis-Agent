@@ -8,6 +8,7 @@ import com.dataagent.platform.common.security.SecurityAuthenticationEntryPoint;
 import com.dataagent.platform.common.security.SecurityConfig;
 import com.dataagent.platform.common.security.TaskAccessContext;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
+import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,12 +60,12 @@ class AuthControllerTest {
     private SecurityAccessContextHolder securityAccessContextHolder;
 
     @Test
-    void registerShouldReturnTokenResponse() throws Exception {
+    void registerShouldReturnTokenResponseAndPassRequestMetadata() throws Exception {
         TokenResponse tokenResponse = tokenResponse();
         AuthRegisterDTO request = new AuthRegisterDTO(
                 "new-user",
                 "Password@123",
-                "新用户",
+                "new-user",
                 "https://static.local/avatar/new-user.png",
                 "new-user@example.com",
                 "13800000011",
@@ -71,9 +73,11 @@ class AuthControllerTest {
                 "test register"
         );
 
-        when(authService.register(request)).thenReturn(tokenResponse);
+        when(authService.register(eq(request), any(AuthRequestMetadata.class))).thenReturn(tokenResponse);
 
         mockMvc.perform(post("/api/auth/register")
+                        .header("X-Forwarded-For", "203.0.113.10, 10.0.0.1")
+                        .header(HttpHeaders.USER_AGENT, "JUnit/Register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isOk())
@@ -82,20 +86,30 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.accessToken").value("access-token"))
                 .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"))
                 .andExpect(jsonPath("$.data.userId").value("user-001"));
+
+        verify(authService).register(eq(request), argThat(metadata ->
+                "203.0.113.10".equals(metadata.clientPublicIp()) && "JUnit/Register".equals(metadata.userAgent())
+        ));
     }
 
     @Test
     void loginShouldReturnUnauthorizedWhenCredentialsAreInvalid() throws Exception {
         LoginRequest request = new LoginRequest("analyst01", "wrong-password");
 
-        when(authService.login(request)).thenReturn(Optional.empty());
+        when(authService.login(eq(request), any(AuthRequestMetadata.class))).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/api/auth/login")
+                        .header("X-Real-IP", "198.51.100.20")
+                        .header(HttpHeaders.USER_AGENT, "JUnit/Login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(401));
+
+        verify(authService).login(eq(request), argThat(metadata ->
+                "198.51.100.20".equals(metadata.clientPublicIp()) && "JUnit/Login".equals(metadata.userAgent())
+        ));
     }
 
     @Test
@@ -205,7 +219,7 @@ class AuthControllerTest {
                 604800L,
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",
@@ -218,7 +232,7 @@ class AuthControllerTest {
                 "access-token",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",

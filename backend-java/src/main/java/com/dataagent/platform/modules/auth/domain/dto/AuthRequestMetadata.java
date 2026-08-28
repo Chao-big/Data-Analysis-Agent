@@ -1,8 +1,6 @@
 package com.dataagent.platform.modules.auth.domain.dto;
 
-public record AuthLoginDTO(
-        String account,
-        String password,
+public record AuthRequestMetadata(
         String clientPublicIp,
         String userAgent
 ) {

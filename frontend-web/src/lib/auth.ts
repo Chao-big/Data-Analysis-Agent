@@ -2,6 +2,8 @@ import { reactive } from "vue";
 import type { AuthApiResponse, AuthSession, AuthTokenPayload, LoginCredentials, RegisterUserForm } from "./types";
 
 export const AUTH_STORAGE_KEY = "data-analysis-agent-session";
+const CLIENT_PUBLIC_IP_HEADER = "X-Client-Public-IP";
+const PUBLIC_IP_LOOKUP_URL = "https://api.ipify.org?format=json";
 
 export type RegisterFieldName = "username" | "email" | "phone" | "password";
 
@@ -58,6 +60,7 @@ export const authSessionState = reactive<{
 
 const pendingRequests: PendingRequest[] = [];
 let refreshLock: Promise<void> | null = null;
+let browserPublicIpPromise: Promise<string | null> | null = null;
 
 async function readApiResponse<T>(response: Response): Promise<AuthApiResponse<T> | null> {
   try {
@@ -127,6 +130,42 @@ function buildHeaders(init?: RequestInit, accessToken?: string) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
   return headers;
+}
+
+async function resolveBrowserPublicIp() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  if (!browserPublicIpPromise) {
+    browserPublicIpPromise = fetchBrowserPublicIp();
+  }
+
+  return browserPublicIpPromise;
+}
+
+async function fetchBrowserPublicIp() {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 1800);
+
+  try {
+    const response = await fetch(PUBLIC_IP_LOOKUP_URL, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as { ip?: unknown };
+    const ip = typeof payload.ip === "string" ? payload.ip.trim() : "";
+    return ip || null;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 async function performAuthorizedFetch(input: string, init: RequestInit = {}, accessToken?: string) {
@@ -226,11 +265,17 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
 }
 
 export async function loginWithAuthApi(credentials: LoginCredentials): Promise<LoginResult> {
+  const clientPublicIp = await resolveBrowserPublicIp();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (clientPublicIp) {
+    headers[CLIENT_PUBLIC_IP_HEADER] = clientPublicIp;
+  }
+
   const response = await fetch("/api/auth/login", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       username: credentials.identifier.trim(),
       password: credentials.password,
@@ -255,11 +300,17 @@ export async function loginWithAuthApi(credentials: LoginCredentials): Promise<L
 }
 
 export async function registerWithAuthApi(payload: RegisterUserForm): Promise<RegisterResult> {
+  const clientPublicIp = await resolveBrowserPublicIp();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (clientPublicIp) {
+    headers[CLIENT_PUBLIC_IP_HEADER] = clientPublicIp;
+  }
+
   const response = await fetch("/api/auth/register", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       username: payload.username.trim(),
       password: payload.password,

@@ -3,6 +3,7 @@ package com.dataagent.platform.modules.auth.repository;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface AuthRepository {
@@ -18,4 +19,6 @@ public interface AuthRepository {
     Optional<AuthUser> findByUserId(String userId);
 
     AuthUser create(AuthRegisterDTO request, String passwordHash);
+
+    void updateLoginSuccess(String userId, LocalDateTime loginAt, String loginIp);
 }

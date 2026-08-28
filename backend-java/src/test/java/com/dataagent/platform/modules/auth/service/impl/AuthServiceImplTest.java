@@ -3,6 +3,7 @@ package com.dataagent.platform.modules.auth.service.impl;
 import com.dataagent.platform.common.security.AuthenticatedUserPrincipal;
 import com.dataagent.platform.common.security.TaskAccessContext;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
+import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
@@ -12,6 +13,8 @@ import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
 import com.dataagent.platform.modules.auth.domain.model.AuthSession;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 import com.dataagent.platform.modules.auth.domain.model.JwtUserClaims;
+import com.dataagent.platform.modules.auth.domain.po.AuthLoginLogPO;
+import com.dataagent.platform.modules.auth.mapper.AuthLoginLogMapper;
 import com.dataagent.platform.modules.auth.repository.AuthRepository;
 import com.dataagent.platform.modules.auth.service.AuthTokenStoreService;
 import com.dataagent.platform.modules.auth.service.JwtTokenService;
@@ -25,6 +28,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.Set;
 
@@ -51,11 +55,14 @@ class AuthServiceImplTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private AuthLoginLogMapper authLoginLogMapper;
+
     @InjectMocks
     private AuthServiceImpl authService;
 
     @Test
-    void registerShouldCreateUserAndPersistRefreshToken() {
+    void registerShouldCreateUserPersistRefreshTokenAndWriteAuditLog() {
         AuthRegisterDTO request = new AuthRegisterDTO(
                 " new-user ",
                 "Password@123",
@@ -67,7 +74,7 @@ class AuthServiceImplTest {
                 " "
         );
         AuthUser createdUser = new AuthUser(
-                "user-100",
+                "100",
                 "new-user",
                 "encoded-password",
                 "new-user",
@@ -90,11 +97,14 @@ class AuthServiceImplTest {
         when(authRepository.create(any(AuthRegisterDTO.class), eq("encoded-password"))).thenReturn(createdUser);
         when(jwtTokenService.createSession(createdUser)).thenReturn(session);
 
-        TokenResponse response = authService.register(request);
+        TokenResponse response = authService.register(
+                request,
+                new AuthRequestMetadata("203.0.113.10", "JUnit/Register")
+        );
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
-        assertThat(response.userId()).isEqualTo("user-100");
+        assertThat(response.userId()).isEqualTo("100");
         assertThat(response.username()).isEqualTo("new-user");
         assertThat(response.nickname()).isEqualTo("new-user");
 
@@ -112,29 +122,72 @@ class AuthServiceImplTest {
                 eq("encoded-password")
         );
         verify(authTokenStoreService).storeRefreshToken(
-                "user-100",
+                "100",
                 "refresh-token",
                 Duration.ofSeconds(604800L)
         );
+
+        ArgumentCaptor<LocalDateTime> loginAtCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(authRepository).updateLoginSuccess(eq("100"), loginAtCaptor.capture(), eq("203.0.113.10"));
+        assertThat(loginAtCaptor.getValue()).isNotNull();
+
+        ArgumentCaptor<AuthLoginLogPO> loginLogCaptor = ArgumentCaptor.forClass(AuthLoginLogPO.class);
+        verify(authLoginLogMapper).insert(loginLogCaptor.capture());
+        assertThat(loginLogCaptor.getValue().getUserId()).isEqualTo(100L);
+        assertThat(loginLogCaptor.getValue().getUsername()).isEqualTo("new-user");
+        assertThat(loginLogCaptor.getValue().getClientPublicIp()).isEqualTo("203.0.113.10");
+        assertThat(loginLogCaptor.getValue().getUserAgent()).isEqualTo("JUnit/Register");
+        assertThat(loginLogCaptor.getValue().getLoginAt()).isNotNull();
     }
 
     @Test
-    void loginShouldCreateSessionForActiveUser() {
-        AuthUser user = user("user-001", "analyst01", "Password@123");
+    void loginShouldCreateSessionForActiveUserAndWriteAuditLog() {
+        AuthUser user = user("1001", "analyst01", "Password@123");
         AuthSession session = session(user, "access-token", "refresh-token", 900L, 604800L);
 
         when(authRepository.findByIdentifier("analyst01")).thenReturn(Optional.of(user));
         when(jwtTokenService.createSession(user)).thenReturn(session);
 
-        Optional<TokenResponse> response = authService.login(new LoginRequest(" analyst01 ", "Password@123"));
+        Optional<TokenResponse> response = authService.login(
+                new LoginRequest(" analyst01 ", "Password@123"),
+                new AuthRequestMetadata("198.51.100.20", "JUnit/Login")
+        );
 
         assertThat(response).isPresent();
         assertThat(response.orElseThrow().accessToken()).isEqualTo("access-token");
         verify(authTokenStoreService).storeRefreshToken(
-                "user-001",
+                "1001",
                 "refresh-token",
                 Duration.ofSeconds(604800L)
         );
+
+        ArgumentCaptor<LocalDateTime> loginAtCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(authRepository).updateLoginSuccess(eq("1001"), loginAtCaptor.capture(), eq("198.51.100.20"));
+        assertThat(loginAtCaptor.getValue()).isNotNull();
+
+        ArgumentCaptor<AuthLoginLogPO> loginLogCaptor = ArgumentCaptor.forClass(AuthLoginLogPO.class);
+        verify(authLoginLogMapper).insert(loginLogCaptor.capture());
+        assertThat(loginLogCaptor.getValue().getUserId()).isEqualTo(1001L);
+        assertThat(loginLogCaptor.getValue().getUsername()).isEqualTo("analyst01");
+        assertThat(loginLogCaptor.getValue().getClientPublicIp()).isEqualTo("198.51.100.20");
+        assertThat(loginLogCaptor.getValue().getUserAgent()).isEqualTo("JUnit/Login");
+    }
+
+    @Test
+    void loginShouldNotWriteAuditWhenPasswordIsInvalid() {
+        AuthUser user = user("1001", "analyst01", "Password@123");
+
+        when(authRepository.findByIdentifier("analyst01")).thenReturn(Optional.of(user));
+
+        Optional<TokenResponse> response = authService.login(
+                new LoginRequest("analyst01", "wrong-password"),
+                new AuthRequestMetadata("198.51.100.21", "JUnit/Login-Fail")
+        );
+
+        assertThat(response).isEmpty();
+        verify(authRepository, never()).updateLoginSuccess(any(), any(), any());
+        verify(authTokenStoreService, never()).storeRefreshToken(any(), any(), any());
+        verify(authLoginLogMapper, never()).insert(any(AuthLoginLogPO.class));
     }
 
     @Test
@@ -146,7 +199,7 @@ class AuthServiceImplTest {
                 "refresh",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",
@@ -178,7 +231,7 @@ class AuthServiceImplTest {
                 "access",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",
@@ -191,7 +244,7 @@ class AuthServiceImplTest {
                 "refresh",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",
@@ -220,7 +273,7 @@ class AuthServiceImplTest {
                 "access",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",
@@ -246,7 +299,7 @@ class AuthServiceImplTest {
                 "access",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",
@@ -282,7 +335,7 @@ class AuthServiceImplTest {
                 userId,
                 username,
                 passwordHash,
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 username + "@example.com",
                 "13800000001",
