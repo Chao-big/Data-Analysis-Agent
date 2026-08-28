@@ -13,6 +13,14 @@ spring:
       max-lifetime: 1800000
       connection-timeout: 30000
       pool-name: DataAgentHikariCP
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: root
+      database: 0
+      timeout: 5s
+      connect-timeout: 5s
 
 mybatis:
   mapper-locations: classpath*:/mapper/**/*.xml
