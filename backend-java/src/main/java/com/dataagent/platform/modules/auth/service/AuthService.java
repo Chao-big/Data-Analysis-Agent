@@ -6,22 +6,20 @@ import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
-import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
-import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
-import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
+import com.dataagent.platform.modules.auth.domain.model.AuthSession;
 
 import java.util.Optional;
 
 public interface AuthService extends AccessTokenAuthenticationService {
 
-    TokenResponse register(AuthRegisterDTO request, AuthRequestMetadata requestMetadata);
+    AuthSession register(AuthRegisterDTO request, AuthRequestMetadata requestMetadata);
 
-    Optional<TokenResponse> login(LoginRequest request, AuthRequestMetadata requestMetadata);
+    Optional<AuthSession> login(LoginRequest request, AuthRequestMetadata requestMetadata);
 
-    LogoutResponse logout(String accessToken, LogoutRequest request);
+    LogoutResponse logout(String accessToken, String refreshToken);
 
-    Optional<TokenResponse> refresh(RefreshTokenRequest request);
+    Optional<AuthSession> refresh(String refreshToken, AuthRequestMetadata requestMetadata);
 
     TaskAccessContext contextDemo();
 

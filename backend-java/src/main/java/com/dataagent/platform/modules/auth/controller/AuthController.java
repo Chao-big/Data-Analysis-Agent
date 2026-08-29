@@ -11,13 +11,14 @@ import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
-import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
-import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
 import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
+import com.dataagent.platform.modules.auth.domain.model.AuthSession;
+import com.dataagent.platform.modules.auth.service.AuthRefreshCookieService;
 import com.dataagent.platform.modules.auth.service.AuthService;
 import com.dataagent.platform.modules.auth.util.RequestIpUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
+
 @Slf4j
 @RestController
 @RequiredArgsConstructor
@@ -34,48 +37,68 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final AuthRefreshCookieService authRefreshCookieService;
     private final SecurityAccessContextHolder securityAccessContextHolder;
 
     @PostMapping("/register")
     public ApiResponse<TokenResponse> register(
             @RequestBody AuthRegisterDTO request,
-            HttpServletRequest httpServletRequest
+            HttpServletRequest httpServletRequest,
+            HttpServletResponse httpServletResponse
     ) {
         log.debug("Received register request for username={}", request == null ? null : request.username());
-        return ApiResponse.ok(authService.register(request, requestMetadata(httpServletRequest)));
+        AuthSession session = authService.register(request, requestMetadata(httpServletRequest));
+        writeRefreshCookie(httpServletResponse, session);
+        return ApiResponse.ok(toTokenResponse(session));
     }
 
     @PostMapping("/login")
     public ApiResponse<TokenResponse> login(
             @RequestBody LoginRequest request,
-            HttpServletRequest httpServletRequest
+            HttpServletRequest httpServletRequest,
+            HttpServletResponse httpServletResponse
     ) {
         log.debug("Received login request for username={}", request == null ? null : request.username());
         return authService.login(request, requestMetadata(httpServletRequest))
-                .map(ApiResponse::ok)
+                .map(session -> {
+                    writeRefreshCookie(httpServletResponse, session);
+                    return ApiResponse.ok(toTokenResponse(session));
+                })
                 .orElseThrow(() -> new ApiException(ApiStatusCode.UNAUTHORIZED, "账号或密码错误。"));
     }
 
     @PostMapping("/logout")
     public ApiResponse<LogoutResponse> logout(
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal,
-            @RequestBody(required = false) LogoutRequest request
+            HttpServletRequest httpServletRequest,
+            HttpServletResponse httpServletResponse
     ) {
         log.debug("Received logout request");
         if (principal == null) {
             throw new ApiException(ApiStatusCode.UNAUTHORIZED, "login required");
         }
-        return ApiResponse.ok(authService.logout(principal.accessToken(), request));
+
+        String refreshToken = authRefreshCookieService.resolveRefreshToken(httpServletRequest);
+        LogoutResponse logoutResponse = authService.logout(principal.accessToken(), refreshToken);
+        authRefreshCookieService.clearRefreshTokenCookie(httpServletResponse);
+        return ApiResponse.ok(logoutResponse);
     }
 
     @PostMapping("/refresh")
-    public ApiResponse<TokenResponse> refresh(@RequestBody RefreshTokenRequest request) {
+    public ApiResponse<TokenResponse> refresh(
+            HttpServletRequest httpServletRequest,
+            HttpServletResponse httpServletResponse
+    ) {
+        String refreshToken = authRefreshCookieService.resolveRefreshToken(httpServletRequest);
         log.debug("Received refresh request");
-        return authService.refresh(request)
-                .map(ApiResponse::ok)
+        return authService.refresh(refreshToken, requestMetadata(httpServletRequest))
+                .map(session -> {
+                    writeRefreshCookie(httpServletResponse, session);
+                    return ApiResponse.ok(toTokenResponse(session));
+                })
                 .orElseThrow(() -> new ApiException(
                         ApiStatusCode.UNAUTHORIZED,
-                        "refresh token is invalid or expired"
+                        "refresh token is invalid, expired, or inactive"
                 ));
     }
 
@@ -111,14 +134,39 @@ public class AuthController {
         return ApiResponse.ok(authService.contextDemo());
     }
 
+    private void writeRefreshCookie(HttpServletResponse response, AuthSession session) {
+        authRefreshCookieService.writeRefreshTokenCookie(
+                response,
+                session.refreshToken(),
+                java.time.Duration.ofSeconds(session.refreshTokenExpiresIn())
+        );
+    }
+
+    private TokenResponse toTokenResponse(AuthSession session) {
+        return new TokenResponse(
+                session.accessToken(),
+                null,
+                session.accessTokenExpiresIn(),
+                session.refreshTokenExpiresIn(),
+                session.user().userId(),
+                session.user().username(),
+                session.user().nickname(),
+                session.user().avatarUrl(),
+                session.user().status(),
+                session.user().tenantId(),
+                session.user().roles()
+        );
+    }
+
     private AuthRequestMetadata requestMetadata(HttpServletRequest request) {
         if (request == null) {
-            return new AuthRequestMetadata(null, null);
+            return new AuthRequestMetadata(null, null, null);
         }
 
         return new AuthRequestMetadata(
                 RequestIpUtil.resolveClientIp(request),
-                normalizeNullable(request.getHeader("User-Agent"))
+                normalizeNullable(request.getHeader("User-Agent")),
+                parseInstantHeader(request.getHeader("X-Client-Last-Activity-At"))
         );
     }
 
@@ -129,5 +177,19 @@ public class AuthController {
 
         String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private Instant parseInstantHeader(String value) {
+        String normalized = normalizeNullable(value);
+        if (normalized == null) {
+            return null;
+        }
+
+        try {
+            return Instant.parse(normalized);
+        } catch (RuntimeException exception) {
+            log.debug("Ignored invalid X-Client-Last-Activity-At header: {}", normalized);
+            return null;
+        }
     }
 }

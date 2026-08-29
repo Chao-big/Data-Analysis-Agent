@@ -3,6 +3,7 @@ package com.dataagent.platform.common.web;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -25,6 +26,13 @@ public class GlobalExceptionHandler {
         log.warn("Request rejected: {}", exception.getMessage());
         return ResponseEntity.status(ApiStatusCode.BAD_REQUEST.httpStatus())
                 .body(ApiResponse.fail(ApiStatusCode.BAD_REQUEST, exception.getMessage()));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException exception) {
+        log.warn("Resource not found: {}", exception.getResourcePath());
+        return ResponseEntity.status(ApiStatusCode.NOT_FOUND.httpStatus())
+                .body(ApiResponse.fail(ApiStatusCode.NOT_FOUND));
     }
 
     @ExceptionHandler(Exception.class)

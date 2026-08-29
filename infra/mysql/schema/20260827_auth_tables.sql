@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS auth_user (
     avatar_url VARCHAR(512) NULL COMMENT 'User avatar URL',
     email VARCHAR(128) NOT NULL COMMENT 'Global unique email',
     phone VARCHAR(32) NOT NULL COMMENT 'Global unique phone',
-    gender VARCHAR(16) NULL COMMENT 'Optional gender field',
+    gender SMALLINT NOT NULL DEFAULT 0 COMMENT '0 unknown, 1 male, 2 female',
     status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE, DISABLED, LOCKED',
     last_login_at DATETIME NULL COMMENT 'Last successful login time',
     last_login_ip VARCHAR(64) NULL COMMENT 'Last successful login IP',

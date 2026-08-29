@@ -2,8 +2,8 @@ package com.dataagent.platform.modules.auth.integration;
 
 import com.dataagent.platform.DataAgentApplication;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
-import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
+import com.dataagent.platform.modules.auth.domain.model.RefreshTokenSessionState;
 import com.dataagent.platform.modules.auth.domain.po.AuthLoginLogPO;
 import com.dataagent.platform.modules.auth.mapper.AuthLoginLogMapper;
 import com.dataagent.platform.modules.auth.mapper.AuthUserMapper;
@@ -11,6 +11,7 @@ import com.dataagent.platform.modules.auth.repository.AuthRepository;
 import com.dataagent.platform.modules.auth.service.AuthTokenStoreService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
@@ -50,12 +52,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         properties = {
                 "spring.autoconfigure.exclude="
                         + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
-                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
+                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration",
+                "auth.session.refresh-token-cookie-secure=false",
+                "auth.session.inactivity-timeout=48h"
         }
 )
 @AutoConfigureMockMvc
 @Import(AuthIntegrationTest.AuthIntegrationTestConfig.class)
 class AuthIntegrationTest {
+
+    private static final String DEFAULT_AVATAR_URL =
+            "https://xiaoce-zhiguang.oss-cn-shenzhen.aliyuncs.com/avatars/2012078239280226305-1768909576074.jpg";
+    private static final String REFRESH_COOKIE_NAME = "data-analysis-agent-refresh-token";
 
     @Autowired
     private MockMvc mockMvc;
@@ -94,10 +102,10 @@ class AuthIntegrationTest {
                 "new-user",
                 "Password@123",
                 "new-user",
-                "https://static.local/avatar/new-user.png",
+                "",
                 "new-user@example.com",
                 "13800000011",
-                "UNKNOWN",
+                (short) 0,
                 "integration test"
         );
 
@@ -109,16 +117,19 @@ class AuthIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.username").value("new-user"))
+                .andExpect(jsonPath("$.data.avatarUrl").value(DEFAULT_AVATAR_URL))
+                .andExpect(jsonPath("$.data.refreshToken").isEmpty())
                 .andReturn();
 
         JsonNode registerData = bodyData(registerResult);
         String userId = registerData.get("userId").asText();
         String accessToken = registerData.get("accessToken").asText();
-        String refreshToken = registerData.get("refreshToken").asText();
+        Cookie refreshCookie = extractRefreshCookie(registerResult);
 
         IntegrationAuthUserRecord registeredUser = authRepository.findRecordByUserId(userId).orElseThrow();
         assertThat(registeredUser.lastLoginAt()).isNotNull();
         assertThat(registeredUser.lastLoginIp()).isEqualTo("203.0.113.10");
+        assertThat(registeredUser.avatarUrl()).isEqualTo(DEFAULT_AVATAR_URL);
 
         ArgumentCaptor<AuthLoginLogPO> registerLogCaptor = ArgumentCaptor.forClass(AuthLoginLogPO.class);
         verify(authLoginLogMapper).insert(registerLogCaptor.capture());
@@ -133,31 +144,25 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.data.nickname").value("new-user"));
 
         MvcResult refreshResult = mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(new RefreshTokenRequest(refreshToken))))
+                        .cookie(refreshCookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.refreshToken").isEmpty())
                 .andReturn();
 
         JsonNode refreshData = bodyData(refreshResult);
         String rotatedAccessToken = refreshData.get("accessToken").asText();
-        String rotatedRefreshToken = refreshData.get("refreshToken").asText();
+        Cookie rotatedRefreshCookie = extractRefreshCookie(refreshResult);
 
         mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(new RefreshTokenRequest(refreshToken))))
+                        .cookie(refreshCookie))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(401));
 
         mockMvc.perform(post("/api/auth/logout")
                         .header(HttpHeaders.AUTHORIZATION, bearer(rotatedAccessToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "refreshToken": "%s"
-                                }
-                                """.formatted(rotatedRefreshToken)))
+                        .cookie(rotatedRefreshCookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.loggedOut").value(true));
 
@@ -168,8 +173,30 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.code").value(401));
 
         mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(rotatedRefreshCookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void refreshShouldRejectSessionAfterFortyEightHoursOfInactivity() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(new RefreshTokenRequest(rotatedRefreshToken))))
+                        .content("""
+                                {
+                                  "username": "analyst01",
+                                  "password": "Password@123"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Cookie refreshCookie = extractRefreshCookie(loginResult);
+        authTokenStoreService.rewindLastActivity("user-001", Duration.ofHours(49));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(refreshCookie))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(401));
@@ -177,7 +204,7 @@ class AuthIntegrationTest {
 
     @Test
     void loginShouldSupportEmailIdentifierAndWriteAuditLog() throws Exception {
-        mockMvc.perform(post("/api/auth/login")
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
                         .header("X-Real-IP", "198.51.100.20")
                         .header(HttpHeaders.USER_AGENT, "Integration/Login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -190,7 +217,11 @@ class AuthIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.userId").value("user-001"))
-                .andExpect(jsonPath("$.data.roles[0]").value("ANALYST"));
+                .andExpect(jsonPath("$.data.roles[0]").value("ANALYST"))
+                .andExpect(jsonPath("$.data.refreshToken").isEmpty())
+                .andReturn();
+
+        assertThat(extractRefreshCookie(result)).isNotNull();
 
         IntegrationAuthUserRecord user = authRepository.findRecordByUserId("user-001").orElseThrow();
         assertThat(user.lastLoginAt()).isNotNull();
@@ -239,6 +270,12 @@ class AuthIntegrationTest {
 
     private String bearer(String accessToken) {
         return "Bearer " + accessToken;
+    }
+
+    private Cookie extractRefreshCookie(MvcResult mvcResult) {
+        Cookie cookie = mvcResult.getResponse().getCookie(REFRESH_COOKIE_NAME);
+        assertThat(cookie).isNotNull();
+        return cookie;
     }
 
     @TestConfiguration
@@ -376,7 +413,7 @@ class AuthIntegrationTest {
                     normalizeNullable(request.avatarUrl()),
                     normalize(request.email()),
                     normalize(request.phone()),
-                    normalizeNullable(request.gender()),
+                    request.gender() == null ? (short) 0 : request.gender(),
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ANALYST"),
@@ -413,7 +450,7 @@ class AuthIntegrationTest {
                     "https://static.local/avatar/" + username + ".png",
                     email,
                     phone,
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     roles,
@@ -449,7 +486,7 @@ class AuthIntegrationTest {
             String avatarUrl,
             String email,
             String phone,
-            String gender,
+            Short gender,
             String status,
             String tenantId,
             Set<String> roles,
@@ -501,27 +538,30 @@ class AuthIntegrationTest {
     static class InMemoryIntegrationAuthTokenStoreService implements AuthTokenStoreService {
 
         private final Map<String, String> refreshTokens = new ConcurrentHashMap<>();
-        private final Map<String, Duration> refreshTtls = new ConcurrentHashMap<>();
+        private final Map<String, RefreshTokenSessionState> refreshTokenStates = new ConcurrentHashMap<>();
         private final Map<String, Duration> blacklistedAccessTokens = new ConcurrentHashMap<>();
 
         @Override
-        public void storeRefreshToken(String userId, String refreshToken, Duration ttl) {
-            if (isBlank(userId) || isBlank(refreshToken) || invalidTtl(ttl)) {
+        public void storeRefreshToken(String userId, String refreshToken, Duration ttl, Instant lastActivityAt) {
+            if (isBlank(userId) || isBlank(refreshToken) || invalidTtl(ttl) || lastActivityAt == null) {
                 return;
             }
             refreshTokens.put(userId, refreshToken);
-            refreshTtls.put(userId, ttl);
+            refreshTokenStates.put(userId, new RefreshTokenSessionState(Instant.now().plus(ttl), lastActivityAt));
         }
 
         @Override
-        public boolean matchesRefreshToken(String userId, String refreshToken) {
-            return refreshToken != null && refreshToken.equals(refreshTokens.get(userId));
+        public Optional<RefreshTokenSessionState> findRefreshTokenSession(String userId, String refreshToken) {
+            if (!refreshToken.equals(refreshTokens.get(userId))) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(refreshTokenStates.get(userId));
         }
 
         @Override
         public void removeRefreshToken(String userId) {
             refreshTokens.remove(userId);
-            refreshTtls.remove(userId);
+            refreshTokenStates.remove(userId);
         }
 
         @Override
@@ -537,9 +577,21 @@ class AuthIntegrationTest {
             return blacklistedAccessTokens.containsKey(userId + ":" + tokenId);
         }
 
+        void rewindLastActivity(String userId, Duration delta) {
+            RefreshTokenSessionState state = refreshTokenStates.get(userId);
+            if (state == null || delta == null || delta.isNegative()) {
+                return;
+            }
+
+            refreshTokenStates.put(
+                    userId,
+                    new RefreshTokenSessionState(state.expiresAt(), state.lastActivityAt().minus(delta))
+            );
+        }
+
         void clear() {
             refreshTokens.clear();
-            refreshTtls.clear();
+            refreshTokenStates.clear();
             blacklistedAccessTokens.clear();
         }
 

@@ -28,7 +28,7 @@ import java.util.Base64;
 
 @Configuration
 @RequiredArgsConstructor
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, AuthSessionProperties.class})
 public class JwtConfig {
 
     private static final byte[] RSA_ALGORITHM_IDENTIFIER = new byte[]{

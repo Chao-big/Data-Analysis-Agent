@@ -29,7 +29,7 @@ public class HybridAuthRepository implements AuthRepository {
                     "https://static.local/avatar/analyst01.png",
                     "analyst01@example.com",
                     "13800000001",
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ANALYST"),
@@ -44,7 +44,7 @@ public class HybridAuthRepository implements AuthRepository {
                     "https://static.local/avatar/admin01.png",
                     "admin01@example.com",
                     "13800000002",
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ADMIN"),
@@ -159,7 +159,7 @@ public class HybridAuthRepository implements AuthRepository {
         user.setAvatarUrl(normalize(request.avatarUrl()));
         user.setEmail(normalize(request.email()));
         user.setPhone(normalize(request.phone()));
-        user.setGender(normalize(request.gender()));
+        user.setGender(request.gender() == null ? (short) 0 : request.gender());
         user.setStatus("ACTIVE");
         user.setRemark(normalize(request.remark()));
         authUserMapper.insert(user);

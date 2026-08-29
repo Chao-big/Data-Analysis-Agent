@@ -7,7 +7,7 @@ public record AuthRegisterDTO(
         String avatarUrl,
         String email,
         String phone,
-        String gender,
+        Short gender,
         String remark
 ) {
 }
