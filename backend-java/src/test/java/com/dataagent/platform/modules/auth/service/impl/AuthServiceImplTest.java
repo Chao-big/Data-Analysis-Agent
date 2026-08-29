@@ -2,17 +2,16 @@ package com.dataagent.platform.modules.auth.service.impl;
 
 import com.dataagent.platform.common.security.AuthenticatedUserPrincipal;
 import com.dataagent.platform.common.security.TaskAccessContext;
+import com.dataagent.platform.modules.auth.config.AuthSessionProperties;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
-import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
-import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
-import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
 import com.dataagent.platform.modules.auth.domain.model.AuthSession;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 import com.dataagent.platform.modules.auth.domain.model.JwtUserClaims;
+import com.dataagent.platform.modules.auth.domain.model.RefreshTokenSessionState;
 import com.dataagent.platform.modules.auth.domain.po.AuthLoginLogPO;
 import com.dataagent.platform.modules.auth.mapper.AuthLoginLogMapper;
 import com.dataagent.platform.modules.auth.repository.AuthRepository;
@@ -43,6 +42,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImplTest {
 
+    private static final String DEFAULT_AVATAR_URL =
+            "https://xiaoce-zhiguang.oss-cn-shenzhen.aliyuncs.com/avatars/2012078239280226305-1768909576074.jpg";
+
     @Mock
     private AuthRepository authRepository;
 
@@ -57,6 +59,9 @@ class AuthServiceImplTest {
 
     @Mock
     private AuthLoginLogMapper authLoginLogMapper;
+
+    @Mock
+    private AuthSessionProperties authSessionProperties;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -78,10 +83,10 @@ class AuthServiceImplTest {
                 "new-user",
                 "encoded-password",
                 "new-user",
-                "https://static.local/avatar/new-user.png",
+                DEFAULT_AVATAR_URL,
                 "new-user@example.com",
                 "13800000011",
-                "UNKNOWN",
+                (short) 0,
                 "ACTIVE",
                 "tenant-demo",
                 Set.of("ANALYST"),
@@ -97,34 +102,36 @@ class AuthServiceImplTest {
         when(authRepository.create(any(AuthRegisterDTO.class), eq("encoded-password"))).thenReturn(createdUser);
         when(jwtTokenService.createSession(createdUser)).thenReturn(session);
 
-        TokenResponse response = authService.register(
+        AuthSession response = authService.register(
                 request,
-                new AuthRequestMetadata("203.0.113.10", "JUnit/Register")
+                new AuthRequestMetadata("203.0.113.10", "JUnit/Register", null)
         );
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
-        assertThat(response.userId()).isEqualTo("100");
-        assertThat(response.username()).isEqualTo("new-user");
-        assertThat(response.nickname()).isEqualTo("new-user");
+        assertThat(response.user().userId()).isEqualTo("100");
+        assertThat(response.user().username()).isEqualTo("new-user");
+        assertThat(response.user().nickname()).isEqualTo("new-user");
+        assertThat(response.user().avatarUrl()).isEqualTo(DEFAULT_AVATAR_URL);
 
         verify(authRepository).create(
                 eq(new AuthRegisterDTO(
                         "new-user",
                         "Password@123",
                         "new-user",
-                        null,
+                        DEFAULT_AVATAR_URL,
                         "new-user@example.com",
                         "13800000011",
-                        null,
+                        (short) 0,
                         null
                 )),
                 eq("encoded-password")
         );
         verify(authTokenStoreService).storeRefreshToken(
-                "100",
-                "refresh-token",
-                Duration.ofSeconds(604800L)
+                eq("100"),
+                eq("refresh-token"),
+                eq(Duration.ofSeconds(604800L)),
+                any(Instant.class)
         );
 
         ArgumentCaptor<LocalDateTime> loginAtCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
@@ -148,17 +155,18 @@ class AuthServiceImplTest {
         when(authRepository.findByIdentifier("analyst01")).thenReturn(Optional.of(user));
         when(jwtTokenService.createSession(user)).thenReturn(session);
 
-        Optional<TokenResponse> response = authService.login(
+        Optional<AuthSession> response = authService.login(
                 new LoginRequest(" analyst01 ", "Password@123"),
-                new AuthRequestMetadata("198.51.100.20", "JUnit/Login")
+                new AuthRequestMetadata("198.51.100.20", "JUnit/Login", null)
         );
 
         assertThat(response).isPresent();
         assertThat(response.orElseThrow().accessToken()).isEqualTo("access-token");
         verify(authTokenStoreService).storeRefreshToken(
-                "1001",
-                "refresh-token",
-                Duration.ofSeconds(604800L)
+                eq("1001"),
+                eq("refresh-token"),
+                eq(Duration.ofSeconds(604800L)),
+                any(Instant.class)
         );
 
         ArgumentCaptor<LocalDateTime> loginAtCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
@@ -179,19 +187,21 @@ class AuthServiceImplTest {
 
         when(authRepository.findByIdentifier("analyst01")).thenReturn(Optional.of(user));
 
-        Optional<TokenResponse> response = authService.login(
+        Optional<AuthSession> response = authService.login(
                 new LoginRequest("analyst01", "wrong-password"),
-                new AuthRequestMetadata("198.51.100.21", "JUnit/Login-Fail")
+                new AuthRequestMetadata("198.51.100.21", "JUnit/Login-Fail", null)
         );
 
         assertThat(response).isEmpty();
         verify(authRepository, never()).updateLoginSuccess(any(), any(), any());
-        verify(authTokenStoreService, never()).storeRefreshToken(any(), any(), any());
+        verify(authTokenStoreService, never()).storeRefreshToken(any(), any(), any(), any());
         verify(authLoginLogMapper, never()).insert(any(AuthLoginLogPO.class));
     }
 
     @Test
     void refreshShouldIssueNewSessionWhenRefreshTokenMatchesRedis() {
+        when(authSessionProperties.getInactivityTimeout()).thenReturn(Duration.ofHours(48));
+
         AuthUser user = user("user-001", "analyst01", "Password@123");
         AuthSession session = session(user, "new-access-token", "new-refresh-token", 900L, 604800L);
         JwtUserClaims refreshClaims = new JwtUserClaims(
@@ -209,19 +219,62 @@ class AuthServiceImplTest {
         );
 
         when(jwtTokenService.decodeRefreshToken("refresh-token")).thenReturn(Optional.of(refreshClaims));
-        when(authTokenStoreService.matchesRefreshToken("user-001", "refresh-token")).thenReturn(true);
+        when(authTokenStoreService.findRefreshTokenSession("user-001", "refresh-token"))
+                .thenReturn(Optional.of(new RefreshTokenSessionState(
+                        Instant.now().plus(Duration.ofDays(7)),
+                        Instant.now().minus(Duration.ofHours(2))
+                )));
         when(authRepository.findByUserId("user-001")).thenReturn(Optional.of(user));
         when(jwtTokenService.createSession(user)).thenReturn(session);
 
-        Optional<TokenResponse> response = authService.refresh(new RefreshTokenRequest("refresh-token"));
+        Optional<AuthSession> response = authService.refresh(
+                "refresh-token",
+                new AuthRequestMetadata(null, null, Instant.now().minus(Duration.ofHours(1)))
+        );
 
         assertThat(response).isPresent();
         assertThat(response.orElseThrow().refreshToken()).isEqualTo("new-refresh-token");
         verify(authTokenStoreService).storeRefreshToken(
-                "user-001",
-                "new-refresh-token",
-                Duration.ofSeconds(604800L)
+                eq("user-001"),
+                eq("new-refresh-token"),
+                eq(Duration.ofSeconds(604800L)),
+                any(Instant.class)
         );
+    }
+
+    @Test
+    void refreshShouldRejectSessionInactiveForMoreThanFortyEightHours() {
+        when(authSessionProperties.getInactivityTimeout()).thenReturn(Duration.ofHours(48));
+
+        JwtUserClaims refreshClaims = new JwtUserClaims(
+                "refresh-jti",
+                "refresh",
+                "user-001",
+                "analyst01",
+                "analyst",
+                "https://static.local/avatar/analyst01.png",
+                "ACTIVE",
+                "tenant-demo",
+                Set.of("ANALYST"),
+                Instant.now().minus(Duration.ofDays(3)),
+                Instant.now().plus(Duration.ofDays(4))
+        );
+
+        when(jwtTokenService.decodeRefreshToken("refresh-token")).thenReturn(Optional.of(refreshClaims));
+        when(authTokenStoreService.findRefreshTokenSession("user-001", "refresh-token"))
+                .thenReturn(Optional.of(new RefreshTokenSessionState(
+                        Instant.now().plus(Duration.ofDays(4)),
+                        Instant.now().minus(Duration.ofHours(49))
+                )));
+
+        Optional<AuthSession> response = authService.refresh(
+                "refresh-token",
+                new AuthRequestMetadata(null, null, Instant.now().minus(Duration.ofHours(49)))
+        );
+
+        assertThat(response).isEmpty();
+        verify(authTokenStoreService).removeRefreshToken("user-001");
+        verify(authRepository, never()).findByUserId("user-001");
     }
 
     @Test
@@ -256,7 +309,7 @@ class AuthServiceImplTest {
         when(jwtTokenService.decodeAccessToken("access-token")).thenReturn(Optional.of(accessClaims));
         when(jwtTokenService.decodeRefreshToken("refresh-token")).thenReturn(Optional.of(refreshClaims));
 
-        LogoutResponse response = authService.logout("access-token", new LogoutRequest("refresh-token"));
+        LogoutResponse response = authService.logout("access-token", "refresh-token");
 
         assertThat(response.loggedOut()).isTrue();
 
@@ -339,7 +392,7 @@ class AuthServiceImplTest {
                 "https://static.local/avatar/analyst01.png",
                 username + "@example.com",
                 "13800000001",
-                "UNKNOWN",
+                (short) 0,
                 "ACTIVE",
                 "tenant-demo",
                 Set.of("ANALYST"),

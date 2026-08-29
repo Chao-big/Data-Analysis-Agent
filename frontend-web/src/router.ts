@@ -12,6 +12,7 @@ const router = createRouter({
   routes: [
     { path: "/login", component: LoginPage, meta: { guestOnly: true } },
     { path: "/register", component: RegisterPage, meta: { guestOnly: true } },
+    { path: "/prototype/profile", component: ProfilePage },
     { path: "/", component: WorkbenchPage, meta: { requiresAuth: true } },
     { path: "/datasets", component: DatasetsPage, meta: { requiresAuth: true } },
     { path: "/history", component: HistoryPage, meta: { requiresAuth: true } },

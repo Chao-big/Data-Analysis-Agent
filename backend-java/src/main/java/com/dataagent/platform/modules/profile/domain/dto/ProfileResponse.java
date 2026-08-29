@@ -1,9 +1,9 @@
-package com.dataagent.platform.modules.auth.domain.vo;
+package com.dataagent.platform.modules.profile.domain.dto;
 
 import java.time.LocalDateTime;
 
-public record AuthUserVO(
-        Long id,
+public record ProfileResponse(
+        String userId,
         String username,
         String nickname,
         String avatarUrl,
@@ -13,7 +13,6 @@ public record AuthUserVO(
         String status,
         LocalDateTime lastLoginAt,
         String lastLoginIp,
-        String remark,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

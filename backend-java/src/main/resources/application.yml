@@ -80,3 +80,11 @@ jwt:
   issuer: data-agent-backend
   header: Authorization
   prefix: Bearer
+
+auth:
+  session:
+    refresh-token-cookie-name: data-analysis-agent-refresh-token
+    refresh-token-cookie-path: /api/auth
+    refresh-token-cookie-secure: false
+    refresh-token-cookie-same-site: Lax
+    inactivity-timeout: 48h

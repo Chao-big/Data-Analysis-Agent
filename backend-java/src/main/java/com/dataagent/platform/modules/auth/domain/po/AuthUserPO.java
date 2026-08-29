@@ -45,7 +45,7 @@ public class AuthUserPO implements Serializable {
     private String phone;
 
     @TableField("gender")
-    private String gender;
+    private Short gender;
 
     @TableField("status")
     private String status;
