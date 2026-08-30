@@ -120,7 +120,9 @@ function mapRegisterField(message: string): RegisterFieldName | undefined {
 
 function buildHeaders(init?: RequestInit, accessToken?: string) {
   const headers = new Headers(init?.headers ?? {});
-  if (!headers.has("Content-Type") && init?.body) {
+  // FormData 由浏览器自动生成带 boundary 的 multipart Content-Type，不能手动覆盖
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  if (!headers.has("Content-Type") && init?.body && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
   if (accessToken) {
