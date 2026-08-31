@@ -93,3 +93,10 @@ storage:
     access-key-id: ${OSS_ACCESS_KEY_ID:your-access-key-id}
     access-key-secret: ${OSS_ACCESS_KEY_SECRET:your-access-key-secret}
     public-domain: ${OSS_PUBLIC_DOMAIN:}
+
+dataset:
+  mysql:
+    connect-timeout-ms: 5000
+    socket-timeout-ms: 10000
+  crypto:
+    aes-key-base64: ${DATASET_AES_KEY_BASE64:}
