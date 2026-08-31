@@ -25,6 +25,8 @@ class SqlPlan(BaseModel):
 
 ### `build_read_only_sql(question: str, schema: dict, access_context: dict) -> SqlPlan`
 
+### `validate_read_only_sql(sql: str, access_context: dict) -> dict`
+
 ### `run_read_only_sql(plan: SqlPlan, datasource: dict) -> dict`
 
 输出示例：
@@ -40,7 +42,18 @@ class SqlPlan(BaseModel):
 }
 ```
 
-## 3. 错误返回建议
+## 3. 校验返回建议
+
+```json
+{
+  "passed": false,
+  "ruleCode": "SQL_UNAUTHORIZED_TABLE",
+  "message": "SQL references unauthorized table finance.secret_fact",
+  "riskLevel": "high"
+}
+```
+
+## 4. 错误返回建议
 
 ```json
 {

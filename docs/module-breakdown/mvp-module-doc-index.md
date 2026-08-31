@@ -4,6 +4,10 @@
 
 本文档用于把 [data-analysis-agent-mvp-requirements.md](C:/Users/17924/Desktop/agent项目/docs/data-analysis-agent-mvp-requirements.md) 拆分到当前项目结构下的最小模块文档中，便于后续按模块开发、评审和测试。
 
+与“自然语言对话 + 流式分析”初版主链相关的总体方案文档位于：
+
+1. `docs/module-breakdown/natural-language-chat-initial-architecture.md`
+
 ## 2. 前端模块文档
 
 1. `frontend-web/docs/modules/workbench/requirements.md`
