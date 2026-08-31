@@ -215,7 +215,7 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
-        <main class="min-h-0 flex-1 overflow-hidden">
+        <main class="min-h-0 flex-1 overflow-y-auto">
           <slot />
         </main>
       </div>

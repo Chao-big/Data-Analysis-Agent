@@ -42,6 +42,7 @@ logs/
 
 # Local secrets
 backend-java/src/main/resources/keys/*.pem
+backend-java/src/main/resources/application-dev.yml
 
 # Local infrastructure data
 /runtime/

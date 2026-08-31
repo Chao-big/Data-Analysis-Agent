@@ -9,7 +9,7 @@ import java.time.Duration;
 
 @Getter
 @Setter
-@ConfigurationProperties(prefix = "jwt")
+@ConfigurationProperties(prefix = "auth.jwt")
 public class JwtProperties {
 
     private String algorithm;
