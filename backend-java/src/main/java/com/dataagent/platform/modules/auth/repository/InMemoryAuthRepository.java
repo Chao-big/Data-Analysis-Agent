@@ -3,6 +3,7 @@ package com.dataagent.platform.modules.auth.repository;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -18,7 +19,7 @@ public class InMemoryAuthRepository implements AuthRepository {
                     "https://static.local/avatar/analyst01.png",
                     "analyst01@example.com",
                     "13800000001",
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ANALYST"),
@@ -33,7 +34,7 @@ public class InMemoryAuthRepository implements AuthRepository {
                     "https://static.local/avatar/admin01.png",
                     "admin01@example.com",
                     "13800000002",
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ADMIN"),
@@ -93,5 +94,10 @@ public class InMemoryAuthRepository implements AuthRepository {
     @Override
     public AuthUser create(AuthRegisterDTO request, String passwordHash) {
         throw new UnsupportedOperationException("in-memory auth repository does not support registration");
+    }
+
+    @Override
+    public void updateLoginSuccess(String userId, LocalDateTime loginAt, String loginIp) {
+        // Demo-only repository does not persist login metadata.
     }
 }

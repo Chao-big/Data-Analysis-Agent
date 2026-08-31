@@ -3,8 +3,7 @@ package com.dataagent.platform.common.web;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -29,15 +28,11 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(ApiStatusCode.BAD_REQUEST, exception.getMessage()));
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<Void>> handleValidation(MethodArgumentNotValidException exception) {
-        String message = exception.getBindingResult().getFieldErrors().stream()
-                .map(FieldError::getDefaultMessage)
-                .findFirst()
-                .orElse("请求参数不合法");
-        log.warn("Request rejected: {}", message);
-        return ResponseEntity.status(ApiStatusCode.BAD_REQUEST.httpStatus())
-                .body(ApiResponse.fail(ApiStatusCode.BAD_REQUEST, message));
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException exception) {
+        log.warn("Resource not found: {}", exception.getResourcePath());
+        return ResponseEntity.status(ApiStatusCode.NOT_FOUND.httpStatus())
+                .body(ApiResponse.fail(ApiStatusCode.NOT_FOUND));
     }
 
     @ExceptionHandler(Exception.class)

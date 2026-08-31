@@ -6,7 +6,7 @@ public record AuthUserUpdateDTO(
         String avatarUrl,
         String email,
         String phone,
-        String gender,
+        Short gender,
         String status,
         String remark
 ) {

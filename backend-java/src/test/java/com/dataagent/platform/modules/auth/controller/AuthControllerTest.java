@@ -8,11 +8,12 @@ import com.dataagent.platform.common.security.SecurityAuthenticationEntryPoint;
 import com.dataagent.platform.common.security.SecurityConfig;
 import com.dataagent.platform.common.security.TaskAccessContext;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
+import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
-import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
-import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
-import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
+import com.dataagent.platform.modules.auth.domain.model.AuthSession;
+import com.dataagent.platform.modules.auth.domain.model.AuthUser;
+import com.dataagent.platform.modules.auth.service.AuthRefreshCookieService;
 import com.dataagent.platform.modules.auth.service.AuthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -55,62 +57,78 @@ class AuthControllerTest {
     private AuthService authService;
 
     @MockBean
+    private AuthRefreshCookieService authRefreshCookieService;
+
+    @MockBean
     private SecurityAccessContextHolder securityAccessContextHolder;
 
     @Test
-    void registerShouldReturnTokenResponse() throws Exception {
-        TokenResponse tokenResponse = tokenResponse();
+    void registerShouldReturnTokenResponseAndPassRequestMetadata() throws Exception {
         AuthRegisterDTO request = new AuthRegisterDTO(
                 "new-user",
                 "Password@123",
-                "新用户",
+                "new-user",
                 "https://static.local/avatar/new-user.png",
                 "new-user@example.com",
                 "13800000011",
-                "UNKNOWN",
+                (short) 0,
                 "test register"
         );
 
-        when(authService.register(request)).thenReturn(tokenResponse);
+        when(authService.register(eq(request), any(AuthRequestMetadata.class))).thenReturn(session());
 
         mockMvc.perform(post("/api/auth/register")
+                        .header("X-Forwarded-For", "203.0.113.10, 10.0.0.1")
+                        .header(HttpHeaders.USER_AGENT, "JUnit/Register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.accessToken").value("access-token"))
-                .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"))
+                .andExpect(jsonPath("$.data.refreshToken").isEmpty())
                 .andExpect(jsonPath("$.data.userId").value("user-001"));
+
+        verify(authService).register(eq(request), argThat(metadata ->
+                "203.0.113.10".equals(metadata.clientPublicIp())
+                        && "JUnit/Register".equals(metadata.userAgent())
+                        && metadata.clientLastActivityAt() == null
+        ));
+        verify(authRefreshCookieService).writeRefreshTokenCookie(any(), eq("refresh-token"), eq(java.time.Duration.ofDays(7)));
     }
 
     @Test
     void loginShouldReturnUnauthorizedWhenCredentialsAreInvalid() throws Exception {
         LoginRequest request = new LoginRequest("analyst01", "wrong-password");
 
-        when(authService.login(request)).thenReturn(Optional.empty());
+        when(authService.login(eq(request), any(AuthRequestMetadata.class))).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/api/auth/login")
+                        .header("X-Real-IP", "198.51.100.20")
+                        .header(HttpHeaders.USER_AGENT, "JUnit/Login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(401));
+
+        verify(authService).login(eq(request), argThat(metadata ->
+                "198.51.100.20".equals(metadata.clientPublicIp())
+                        && "JUnit/Login".equals(metadata.userAgent())
+                        && metadata.clientLastActivityAt() == null
+        ));
     }
 
     @Test
-    void refreshShouldReturnNewTokens() throws Exception {
-        RefreshTokenRequest request = new RefreshTokenRequest("refresh-token");
+    void refreshShouldReadTokenFromCookieAndReturnNewTokens() throws Exception {
+        when(authRefreshCookieService.resolveRefreshToken(any())).thenReturn("refresh-token");
+        when(authService.refresh(eq("refresh-token"), any(AuthRequestMetadata.class))).thenReturn(Optional.of(session()));
 
-        when(authService.refresh(request)).thenReturn(Optional.of(tokenResponse()));
-
-        mockMvc.perform(post("/api/auth/refresh")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(request)))
+        mockMvc.perform(post("/api/auth/refresh"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.accessToken").value("access-token"))
-                .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
+                .andExpect(jsonPath("$.data.refreshToken").isEmpty());
     }
 
     @Test
@@ -136,18 +154,17 @@ class AuthControllerTest {
 
     @Test
     void logoutShouldDeleteCurrentSessionWhenBearerTokenIsValid() throws Exception {
-        LogoutRequest request = new LogoutRequest("refresh-token");
-
         when(authService.authenticate("access-token")).thenReturn(Optional.of(principal()));
-        when(authService.logout(eq("access-token"), eq(request))).thenReturn(new LogoutResponse(true));
+        when(authRefreshCookieService.resolveRefreshToken(any())).thenReturn("refresh-token");
+        when(authService.logout("access-token", "refresh-token")).thenReturn(new LogoutResponse(true));
 
         mockMvc.perform(post("/api/auth/logout")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(request)))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.loggedOut").value(true));
+
+        verify(authRefreshCookieService).clearRefreshTokenCookie(any());
     }
 
     @Test
@@ -197,19 +214,27 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.userId").value("user-demo"));
     }
 
-    private TokenResponse tokenResponse() {
-        return new TokenResponse(
+    private AuthSession session() {
+        return new AuthSession(
                 "access-token",
                 "refresh-token",
                 900L,
                 604800L,
-                "user-001",
-                "analyst01",
-                "分析师一号",
-                "https://static.local/avatar/analyst01.png",
-                "ACTIVE",
-                "tenant-demo",
-                Set.of("ANALYST")
+                new AuthUser(
+                        "user-001",
+                        "analyst01",
+                        "encoded-password",
+                        "analyst",
+                        "https://static.local/avatar/analyst01.png",
+                        "analyst01@example.com",
+                        "13800000001",
+                        (short) 0,
+                        "ACTIVE",
+                        "tenant-demo",
+                        Set.of("ANALYST"),
+                        Set.of("dataset-sales"),
+                        Set.of("phone")
+                )
         );
     }
 
@@ -218,7 +243,7 @@ class AuthControllerTest {
                 "access-token",
                 "user-001",
                 "analyst01",
-                "分析师一号",
+                "analyst",
                 "https://static.local/avatar/analyst01.png",
                 "ACTIVE",
                 "tenant-demo",

@@ -9,7 +9,7 @@ public record AuthUserVO(
         String avatarUrl,
         String email,
         String phone,
-        String gender,
+        Short gender,
         String status,
         LocalDateTime lastLoginAt,
         String lastLoginIp,

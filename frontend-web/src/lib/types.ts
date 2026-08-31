@@ -18,6 +18,8 @@ export type StreamEventType =
 
 export type ChartPreference = "auto" | "line" | "bar" | "pie";
 
+export type GenderCode = 0 | 1 | 2;
+
 export type ChartConfig = {
   id: string;
   title: string;
@@ -78,14 +80,22 @@ export type AnalysisTask = TaskSummary & {
 
 export type UserProfile = {
   userId: string;
+  nickname: string;
   username: string;
   displayName: string;
-  role: string;
-  organization: string;
+  avatarUrl: string | null;
   email: string;
   phone: string;
+  gender: GenderCode | null;
+  status: string;
+  lastLoginIp: string | null;
   tenantId: string;
   lastLoginAt: string;
+  createdAt: string;
+  updatedAt: string;
+  remark: string | null;
+  role: string;
+  organization: string;
   passwordPolicy: string;
 };
 
@@ -117,7 +127,6 @@ export type MysqlRegisterResult = {
 
 export type AuthTokenPayload = {
   accessToken: string;
-  refreshToken: string;
   accessTokenExpiresIn: number;
   refreshTokenExpiresIn: number;
   userId: string;
@@ -139,15 +148,42 @@ export type RegisterUserForm = {
 
 export type AuthSession = {
   accessToken: string;
-  refreshToken: string;
   accessTokenExpiresIn: number;
   refreshTokenExpiresIn: number;
   userId: string;
   username: string;
+  nickname: string;
   displayName: string;
+  avatarUrl: string | null;
+  status: string;
   tenantId: string;
   roles: string[];
+  email?: string;
+  phone?: string;
+  gender?: GenderCode | null;
+  tokenIssuedAt: string;
+  loginAt: string;
+};
+
+export type ProfilePayload = {
+  userId: string;
+  username: string;
+  nickname: string;
+  avatarUrl: string | null;
   email: string;
   phone: string;
-  loginAt: string;
+  gender: GenderCode | null;
+  status: string;
+  lastLoginAt: string | null;
+  lastLoginIp: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type ProfileUpdatePayload = {
+  nickname: string | null;
+  avatarUrl: string | null;
+  email: string | null;
+  phone: string | null;
+  gender: GenderCode | null;
 };

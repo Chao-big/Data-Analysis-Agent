@@ -4,16 +4,18 @@ import com.dataagent.platform.common.security.AuthenticatedUserPrincipal;
 import com.dataagent.platform.common.security.TaskAccessContext;
 import com.dataagent.platform.common.web.ApiException;
 import com.dataagent.platform.common.web.ApiStatusCode;
+import com.dataagent.platform.modules.auth.config.AuthSessionProperties;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
+import com.dataagent.platform.modules.auth.domain.dto.AuthRequestMetadata;
 import com.dataagent.platform.modules.auth.domain.dto.CurrentUserResponse;
 import com.dataagent.platform.modules.auth.domain.dto.LoginRequest;
-import com.dataagent.platform.modules.auth.domain.dto.LogoutRequest;
 import com.dataagent.platform.modules.auth.domain.dto.LogoutResponse;
-import com.dataagent.platform.modules.auth.domain.dto.RefreshTokenRequest;
-import com.dataagent.platform.modules.auth.domain.dto.TokenResponse;
 import com.dataagent.platform.modules.auth.domain.model.AuthSession;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 import com.dataagent.platform.modules.auth.domain.model.JwtUserClaims;
+import com.dataagent.platform.modules.auth.domain.model.RefreshTokenSessionState;
+import com.dataagent.platform.modules.auth.domain.po.AuthLoginLogPO;
+import com.dataagent.platform.modules.auth.mapper.AuthLoginLogMapper;
 import com.dataagent.platform.modules.auth.repository.AuthRepository;
 import com.dataagent.platform.modules.auth.service.AuthService;
 import com.dataagent.platform.modules.auth.service.AuthTokenStoreService;
@@ -25,6 +27,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -34,6 +38,11 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    private static final short GENDER_UNKNOWN = 0;
+    private static final short GENDER_MALE = 1;
+    private static final short GENDER_FEMALE = 2;
+    private static final String DEFAULT_AVATAR_URL =
+            "https://xiaoce-zhiguang.oss-cn-shenzhen.aliyuncs.com/avatars/2012078239280226305-1768909576074.jpg";
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
     private static final Pattern PHONE_PATTERN = Pattern.compile("^1[3-9]\\d{9}$");
     private static final Pattern SPECIAL_CHAR_PATTERN = Pattern.compile("[!@#$%^&*()_\\-+=\\[\\]{};:'\"\\\\|,.<>/?]");
@@ -42,9 +51,11 @@ public class AuthServiceImpl implements AuthService {
     private final AuthTokenStoreService authTokenStoreService;
     private final JwtTokenService jwtTokenService;
     private final PasswordEncoder passwordEncoder;
+    private final AuthLoginLogMapper authLoginLogMapper;
+    private final AuthSessionProperties authSessionProperties;
 
     @Override
-    public TokenResponse register(AuthRegisterDTO request) {
+    public AuthSession register(AuthRegisterDTO request, AuthRequestMetadata requestMetadata) {
         if (request == null) {
             throw new ApiException(ApiStatusCode.BAD_REQUEST, "注册请求不能为空。");
         }
@@ -54,8 +65,8 @@ public class AuthServiceImpl implements AuthService {
         String nickname = normalize(request.nickname());
         String email = normalize(request.email());
         String phone = normalize(request.phone());
-        String avatarUrl = normalizeNullable(request.avatarUrl());
-        String gender = normalizeNullable(request.gender());
+        String avatarUrl = defaultAvatarUrl(request.avatarUrl());
+        Short gender = normalizeGender(request.gender());
         String remark = normalizeNullable(request.remark());
 
         if (isBlank(username) || isBlank(password) || isBlank(email) || isBlank(phone)) {
@@ -93,38 +104,51 @@ public class AuthServiceImpl implements AuthService {
                 passwordEncoder.encode(password)
         );
 
+        LocalDateTime loginAt = LocalDateTime.now();
+        recordLoginSuccess(user.userId(), requestMetadata, loginAt);
+        recordLoginAudit(user, requestMetadata, loginAt);
         log.info("User registered successfully, userId={}", user.userId());
-        return toTokenResponse(createPersistedSession(user));
+        return createPersistedSession(user, toInstant(loginAt));
     }
 
     @Override
-    public Optional<TokenResponse> login(LoginRequest request) {
+    public Optional<AuthSession> login(LoginRequest request, AuthRequestMetadata requestMetadata) {
         if (request == null || isBlank(request.username()) || isBlank(request.password())) {
             log.warn("Login request rejected because username or password is blank");
             return Optional.empty();
         }
 
-        return authRepository.findByIdentifier(normalize(request.username()))
-                .map(user -> {
-                    log.debug("Found user for login identifier={}", request.username());
-                    return user;
-                })
-                .filter(user -> passwordMatches(request.password(), user.passwordHash()))
-                .filter(user -> "ACTIVE".equalsIgnoreCase(user.status()))
-                .map(this::createPersistedSession)
-                .map(session -> {
-                    log.info("Login succeeded for userId={}", session.user().userId());
-                    return session;
-                })
-                .map(this::toTokenResponse)
-                .or(() -> {
-                    log.warn("Login failed for identifier={}", request.username());
-                    return Optional.empty();
-                });
+        String identifier = normalize(request.username());
+        Optional<AuthUser> userOptional = authRepository.findByIdentifier(identifier);
+        if (userOptional.isEmpty()) {
+            log.warn("Login failed for identifier={}, reason=USER_NOT_FOUND", request.username());
+            return Optional.empty();
+        }
+
+        AuthUser user = userOptional.orElseThrow();
+        log.debug("Found user for login identifier={}", request.username());
+
+        if (!passwordMatches(request.password(), user.passwordHash())) {
+            log.warn("Login failed for identifier={}, reason=INVALID_PASSWORD", request.username());
+            return Optional.empty();
+        }
+
+        if (!"ACTIVE".equalsIgnoreCase(user.status())) {
+            String failureReason = "USER_STATUS_" + normalizeStatus(user.status());
+            log.warn("Login failed for identifier={}, reason={}", request.username(), failureReason);
+            return Optional.empty();
+        }
+
+        LocalDateTime loginAt = LocalDateTime.now();
+        recordLoginSuccess(user.userId(), requestMetadata, loginAt);
+        recordLoginAudit(user, requestMetadata, loginAt);
+        AuthSession session = createPersistedSession(user, toInstant(loginAt));
+        log.info("Login succeeded for userId={}", session.user().userId());
+        return Optional.of(session);
     }
 
     @Override
-    public LogoutResponse logout(String accessToken, LogoutRequest request) {
+    public LogoutResponse logout(String accessToken, String refreshToken) {
         if (!isBlank(accessToken)) {
             jwtTokenService.decodeAccessToken(accessToken).ifPresent(claims -> {
                 authTokenStoreService.removeRefreshToken(claims.userId());
@@ -136,8 +160,8 @@ public class AuthServiceImpl implements AuthService {
             });
         }
 
-        if (request != null && !isBlank(request.refreshToken())) {
-            jwtTokenService.decodeRefreshToken(request.refreshToken())
+        if (!isBlank(refreshToken)) {
+            jwtTokenService.decodeRefreshToken(refreshToken)
                     .ifPresent(claims -> authTokenStoreService.removeRefreshToken(claims.userId()));
         }
 
@@ -146,22 +170,22 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public Optional<TokenResponse> refresh(RefreshTokenRequest request) {
-        if (request == null || isBlank(request.refreshToken())) {
-            log.warn("Refresh request rejected because refresh token is blank");
+    public Optional<AuthSession> refresh(String refreshToken, AuthRequestMetadata requestMetadata) {
+        if (isBlank(refreshToken)) {
+            log.warn("Refresh request rejected because refresh token cookie is blank");
             return Optional.empty();
         }
 
-        return jwtTokenService.decodeRefreshToken(request.refreshToken())
-                .filter(claims -> authTokenStoreService.matchesRefreshToken(claims.userId(), request.refreshToken()))
+        Instant now = Instant.now();
+        return jwtTokenService.decodeRefreshToken(refreshToken)
+                .flatMap(claims -> validateRefreshSession(claims, refreshToken, now))
                 .flatMap(claims -> authRepository.findByUserId(claims.userId()))
                 .filter(user -> "ACTIVE".equalsIgnoreCase(user.status()))
-                .map(this::createPersistedSession)
+                .map(user -> createPersistedSession(user, resolveRefreshActivityAt(requestMetadata, now)))
                 .map(session -> {
                     log.info("Refresh token succeeded for userId={}", session.user().userId());
                     return session;
                 })
-                .map(this::toTokenResponse)
                 .or(() -> {
                     log.warn("Refresh token failed");
                     return Optional.empty();
@@ -225,14 +249,84 @@ public class AuthServiceImpl implements AuthService {
                 ));
     }
 
-    private AuthSession createPersistedSession(AuthUser user) {
+    private AuthSession createPersistedSession(AuthUser user, Instant lastActivityAt) {
         AuthSession session = jwtTokenService.createSession(user);
         authTokenStoreService.storeRefreshToken(
                 user.userId(),
                 session.refreshToken(),
-                Duration.ofSeconds(session.refreshTokenExpiresIn())
+                Duration.ofSeconds(session.refreshTokenExpiresIn()),
+                lastActivityAt
         );
         return session;
+    }
+
+    private Optional<JwtUserClaims> validateRefreshSession(JwtUserClaims claims, String refreshToken, Instant now) {
+        Optional<RefreshTokenSessionState> sessionStateOptional = authTokenStoreService.findRefreshTokenSession(
+                claims.userId(),
+                refreshToken
+        );
+        if (sessionStateOptional.isEmpty()) {
+            return Optional.empty();
+        }
+
+        RefreshTokenSessionState sessionState = sessionStateOptional.orElseThrow();
+        if (sessionState.expiresAt() != null && now.isAfter(sessionState.expiresAt())) {
+            authTokenStoreService.removeRefreshToken(claims.userId());
+            log.info("Rejected expired refresh session for userId={}", claims.userId());
+            return Optional.empty();
+        }
+
+        if (isInactiveTooLong(sessionState.lastActivityAt(), now)) {
+            authTokenStoreService.removeRefreshToken(claims.userId());
+            log.info("Rejected inactive refresh session for userId={}", claims.userId());
+            return Optional.empty();
+        }
+
+        return Optional.of(claims);
+    }
+
+    private Instant resolveRefreshActivityAt(AuthRequestMetadata requestMetadata, Instant fallbackNow) {
+        Instant candidate = requestMetadata == null ? null : requestMetadata.clientLastActivityAt();
+        if (candidate == null) {
+            return fallbackNow;
+        }
+
+        if (candidate.isAfter(fallbackNow.plusSeconds(60))) {
+            return fallbackNow;
+        }
+
+        return candidate;
+    }
+
+    private boolean isInactiveTooLong(Instant lastActivityAt, Instant now) {
+        if (lastActivityAt == null) {
+            return true;
+        }
+
+        Duration inactiveDuration = Duration.between(lastActivityAt, now);
+        return inactiveDuration.compareTo(authSessionProperties.getInactivityTimeout()) > 0;
+    }
+
+    private void recordLoginSuccess(String userId, AuthRequestMetadata requestMetadata, LocalDateTime loginAt) {
+        if (isBlank(userId)) {
+            return;
+        }
+
+        authRepository.updateLoginSuccess(
+                userId,
+                loginAt,
+                normalizeNullable(requestMetadata == null ? null : requestMetadata.clientPublicIp())
+        );
+    }
+
+    private void recordLoginAudit(AuthUser user, AuthRequestMetadata requestMetadata, LocalDateTime loginAt) {
+        AuthLoginLogPO loginLog = new AuthLoginLogPO();
+        loginLog.setUserId(parseLongOrNull(user.userId()));
+        loginLog.setUsername(normalizeNullable(user.username()));
+        loginLog.setClientPublicIp(normalizeNullable(requestMetadata == null ? null : requestMetadata.clientPublicIp()));
+        loginLog.setUserAgent(normalizeNullable(requestMetadata == null ? null : requestMetadata.userAgent()));
+        loginLog.setLoginAt(loginAt);
+        authLoginLogMapper.insert(loginLog);
     }
 
     private boolean isAccessTokenUsable(JwtUserClaims claims) {
@@ -242,22 +336,6 @@ public class AuthServiceImpl implements AuthService {
             return false;
         }
         return true;
-    }
-
-    private TokenResponse toTokenResponse(AuthSession session) {
-        return new TokenResponse(
-                session.accessToken(),
-                session.refreshToken(),
-                session.accessTokenExpiresIn(),
-                session.refreshTokenExpiresIn(),
-                session.user().userId(),
-                session.user().username(),
-                session.user().nickname(),
-                session.user().avatarUrl(),
-                session.user().status(),
-                session.user().tenantId(),
-                session.user().roles()
-        );
     }
 
     private Duration durationUntil(Instant expiresAt) {
@@ -319,6 +397,18 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    private Short normalizeGender(Short gender) {
+        if (gender == null) {
+            return GENDER_UNKNOWN;
+        }
+
+        if (gender != GENDER_UNKNOWN && gender != GENDER_MALE && gender != GENDER_FEMALE) {
+            throw new ApiException(ApiStatusCode.BAD_REQUEST, "gender 仅支持 0、1、2");
+        }
+
+        return gender;
+    }
+
     private String normalize(String value) {
         return value == null ? null : value.trim();
     }
@@ -328,7 +418,34 @@ public class AuthServiceImpl implements AuthService {
         return isBlank(normalized) ? null : normalized;
     }
 
+    private String defaultAvatarUrl(String avatarUrl) {
+        String normalizedAvatarUrl = normalizeNullable(avatarUrl);
+        return normalizedAvatarUrl == null ? DEFAULT_AVATAR_URL : normalizedAvatarUrl;
+    }
+
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private Long parseLongOrNull(String value) {
+        String normalized = normalizeNullable(value);
+        if (normalized == null) {
+            return null;
+        }
+
+        try {
+            return Long.valueOf(normalized);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeStatus(String status) {
+        String normalized = normalizeNullable(status);
+        return normalized == null ? "UNKNOWN" : normalized.toUpperCase();
+    }
+
+    private Instant toInstant(LocalDateTime localDateTime) {
+        return localDateTime.atZone(ZoneId.systemDefault()).toInstant();
     }
 }

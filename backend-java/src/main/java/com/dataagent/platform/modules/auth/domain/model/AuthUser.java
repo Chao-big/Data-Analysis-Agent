@@ -10,7 +10,7 @@ public record AuthUser(
         String avatarUrl,
         String email,
         String phone,
-        String gender,
+        Short gender,
         String status,
         String tenantId,
         Set<String> roles,
