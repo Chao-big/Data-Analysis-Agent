@@ -1,5 +1,7 @@
 # 数据分析 Agent MVP 需求文档
 
+> 说明：本文档保留项目级 MVP 范围定义。对于当前首条流式主链的实现方式，请以 `docs/module-breakdown/natural-language-chat-initial-architecture.md` 和各模块子文档为准。
+
 ## 1. 文档目的
 
 本文档基于当前仓库结构、既有架构设计和已选技术栈，定义数据分析 Agent 项目的 MVP（Minimum Viable Product，最小可用版本）需求范围，用于统一产品、架构、研发和测试的首版交付目标。

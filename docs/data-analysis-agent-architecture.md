@@ -1,5 +1,7 @@
 # 数据分析 Agent 项目架构设计
 
+> 说明：本文档描述的是项目目标态架构。对于“自然语言对话 + 流式分析”的初版落地方案，请以 `docs/module-breakdown/natural-language-chat-initial-architecture.md` 和各模块子文档为准。
+
 ## 1. 项目定位
 
 项目目标是实现一个面向 `CSV / Excel / MySQL` 数据源的企业级数据分析 Agent。系统接收自然语言问题，自动完成数据源理解、权限校验、SQL 规划、Python 分析、图表生成、结论输出，并通过人工审核、审计日志、记忆体系和 MCP 扩展能力提升稳定性与可控性。
