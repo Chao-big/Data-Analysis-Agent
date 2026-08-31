@@ -1,12 +1,12 @@
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: dev
   application:
     name: backend-java
   datasource:
     url: jdbc:mysql://localhost:3306/data_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: ${MYSQL_PASSWORD:}
+    password: ${config.db.password:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       minimum-idle: 5
@@ -23,7 +23,7 @@ spring:
     redis:
       host: 127.0.0.1
       port: 6379
-      password: ${REDIS_PASSWORD:}
+      password: ${config.redis.password:root}
       database: 0
       timeout: 5s
       connect-timeout: 5s
@@ -96,8 +96,8 @@ auth:
 
 storage:
   oss:
-    endpoint: https://oss-cn-hangzhou.aliyuncs.com
-    bucket: your-bucket-name
-    access-key-id: your-access-key-id
-    access-key-secret: ${OSS_ACCESS_KEY_SECRET:your-access-key-secret}
-    public-domain: ""
+    endpoint: ${config.storage.oss.endpoint}
+    bucket: ${config.storage.oss.bucket}
+    access-key-id: ${config.storage.oss.access-key-id}
+    access-key-secret: ${config.storage.oss.access-key-secret}
+    public-domain: ${config.storage.oss.public-domain}
