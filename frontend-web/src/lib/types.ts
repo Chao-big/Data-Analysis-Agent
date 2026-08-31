@@ -111,6 +111,13 @@ export type AuthApiResponse<T> = {
   message: string;
 };
 
+export type UploadDatasetResult = {
+  datasetId: string;
+  sourceType: string;
+  status: string;
+};
+
+
 export type AuthTokenPayload = {
   accessToken: string;
   accessTokenExpiresIn: number;

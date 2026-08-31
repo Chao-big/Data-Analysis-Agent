@@ -1,15 +1,19 @@
 package com.dataagent.platform.modules.dataset;
 
 import com.dataagent.platform.common.web.ApiResponse;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import com.dataagent.platform.modules.dataset.domain.dto.UploadResultResponse;
+import com.dataagent.platform.modules.dataset.service.DatasetService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/datasets")
 public class DatasetController {
+    private final DatasetService datasetService;
 
     @GetMapping("/demo")
     public ApiResponse<Map<String, Object>> demo() {
@@ -18,6 +22,13 @@ public class DatasetController {
                 "sourceType", "CSV",
                 "status", "REGISTERED"
         ));
+    }
+    @PostMapping("/upload")
+    public ApiResponse<UploadResultResponse> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("datasetName") String datasetName,
+            @RequestParam(value = "description", required = false) String description) {
+        return ApiResponse.ok(datasetService.upload(file, datasetName, description));
     }
 }
 
