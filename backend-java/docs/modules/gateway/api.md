@@ -42,12 +42,12 @@
 }
 ```
 
-## 4. 任务 SSE 订阅
+## 4. 说明
 
-### `GET /api/gateway/tasks/{taskId}/stream`
+初版不在 `gateway` 模块暴露任务 SSE。
 
-说明：
+任务相关接口统一由 `job` 模块提供：
 
-1. Java 对前端保持 SSE 长连接
-2. 事件来源可来自 MySQL 状态轮询、Redis 热点状态或 Kafka 状态回传
-3. 事件格式与 `frontend-web/lib/types.ts` 的 `StreamEvent` 对齐
+1. `POST /api/tasks`
+2. `GET /api/tasks/{id}`
+3. `GET /api/tasks/{id}/stream`

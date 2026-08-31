@@ -4,7 +4,19 @@
 
 1. 启动命令：`python -m worker.main`
 
-## 2. 消费主题
+## 2. 当前阶段说明
+
+初版主链不经过 Worker。
+
+当前推荐主链为：
+
+1. Java -> `agent_api` HTTP 流式请求
+2. `agent_api` -> LangGraph
+3. `agent_api` -> Java NDJSON 事件流
+
+Worker 文档保留给第二阶段 Kafka 化演进。
+
+## 3. 消费主题
 
 ### `analysis.task.created`
 
@@ -20,7 +32,7 @@
 }
 ```
 
-## 3. 内部状态装配
+## 4. 内部状态装配
 
 Worker 需要将 Kafka 事件转换为 `AgentState`：
 
@@ -29,7 +41,7 @@ Worker 需要将 Kafka 事件转换为 `AgentState`：
 3. `question`
 4. `dataset_ids`
 
-## 4. 回调 Java 接口
+## 5. 回调 Java 接口
 
 ### `POST /internal/agent/tasks/{taskId}/callback`
 
@@ -47,14 +59,16 @@ Worker 需要将 Kafka 事件转换为 `AgentState`：
 }
 ```
 
-## 5. 中间事件输出
+## 6. 中间事件输出
 
 建议产生以下事件类型：
 
 1. `task_started`
 2. `context_built`
-3. `sql_generated`
-4. `query_executed`
-5. `chart_ready`
-6. `task_finished`
-7. `task_failed`
+3. `sql_delta`
+4. `sql_ready`
+5. `query_executed`
+6. `answer_delta`
+7. `chart_ready`
+8. `task_finished`
+9. `task_failed`
