@@ -6,9 +6,7 @@ public record AuthLoginLogVO(
         Long id,
         Long userId,
         String username,
-        String loginResult,
-        String failureReason,
-        String clientIp,
+        String clientPublicIp,
         String userAgent,
         LocalDateTime loginAt
 ) {

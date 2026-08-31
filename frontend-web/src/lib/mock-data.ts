@@ -193,13 +193,21 @@ export const datasets: DatasetSummary[] = [
 export const currentUser: UserProfile = {
   userId: "user-admin-001",
   username: "admin",
+  nickname: "系统管理员",
   displayName: "系统管理员",
+  avatarUrl: null,
   role: "管理员 / 分析负责人",
   organization: "数据分析中心",
   email: "admin@data-agent.local",
   phone: "138-0000-0000",
+  gender: 0,
+  status: "ACTIVE",
+  lastLoginIp: "127.0.0.1",
   tenantId: "tenant-enterprise",
   lastLoginAt: "2026-08-27 09:18",
+  createdAt: "2026-08-27 08:00",
+  updatedAt: "2026-08-28 17:28",
+  remark: null,
   passwordPolicy: "高风险请求需要再次输入管理员密码确认，但平台不会放行任何非 SELECT SQL。",
 };
 

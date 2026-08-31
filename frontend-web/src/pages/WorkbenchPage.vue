@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import AppShell from "../components/AppShell.vue";
 import ChartRenderer from "../components/ChartRenderer.vue";
 import StatusBadge from "../components/StatusBadge.vue";
@@ -10,21 +10,21 @@ import {
   statusMeta,
   workspaceStore,
 } from "../lib/workspace-store";
-import type { AnalysisTask, ChartPreference, StreamEvent, StreamEventType } from "../lib/types";
+import type { AnalysisTask, StreamEvent, StreamEventType } from "../lib/types";
 
-const chartOptions: { label: string; value: ChartPreference }[] = [
-  { label: "自动", value: "auto" },
-  { label: "折线", value: "line" },
-  { label: "柱状", value: "bar" },
-  { label: "饼图", value: "pie" },
-];
+const historyPanelExpanded = ref(true);
+const editingTaskId = ref<string | null>(null);
+const editingTitle = ref("");
+const activeMenuTaskId = ref<string | null>(null);
 
 const selectedTask = computed(() => workspaceStore.currentTask.value);
 const selectedEvents = computed(() => workspaceStore.currentEvents.value);
 const selectedDatasets = computed(() => workspaceStore.currentDatasets.value);
-const quickDatasets = computed(() => workspaceStore.datasets.slice(0, 6));
 const heroChart = computed(() => selectedTask.value?.charts[0] ?? null);
 const extraCharts = computed(() => selectedTask.value?.charts.slice(1) ?? []);
+const workbenchGridClass = computed(() =>
+  historyPanelExpanded.value ? "xl:grid-cols-[320px_minmax(0,1fr)]" : "xl:grid-cols-[minmax(0,1fr)]",
+);
 
 const resultTitle = computed(() => {
   if (!selectedTask.value) {
@@ -105,6 +105,107 @@ const processPreview = computed(() => {
       return "查看执行过程";
   }
 });
+
+const currentConversationTitle = computed(() => {
+  if (editingTaskId.value && editingTaskId.value === selectedTask.value?.taskId) {
+    return editingTitle.value;
+  }
+  return selectedTask.value?.question ?? "新对话";
+});
+
+function toggleHistoryPanel() {
+  historyPanelExpanded.value = !historyPanelExpanded.value;
+}
+
+function toggleTaskMenu(taskId: string, event: Event) {
+  event.stopPropagation();
+  activeMenuTaskId.value = activeMenuTaskId.value === taskId ? null : taskId;
+}
+
+function closeTaskMenu() {
+  activeMenuTaskId.value = null;
+}
+
+function startRename(task: AnalysisTask | null | undefined, event?: Event) {
+  event?.stopPropagation();
+  if (!task) {
+    return;
+  }
+  closeTaskMenu();
+  editingTaskId.value = task.taskId;
+  editingTitle.value = task.question;
+}
+
+function cancelRename() {
+  editingTaskId.value = null;
+  editingTitle.value = "";
+}
+
+function commitRename() {
+  const taskId = editingTaskId.value;
+  const title = editingTitle.value.trim();
+
+  if (!taskId) {
+    return;
+  }
+
+  if (!title) {
+    cancelRename();
+    return;
+  }
+
+  workspaceStore.state.tasks = workspaceStore.state.tasks.map((task) =>
+    task.taskId === taskId
+      ? {
+          ...task,
+          question: title,
+        }
+      : task,
+  );
+
+  cancelRename();
+}
+
+function deleteTask(taskId: string, event?: Event) {
+  event?.stopPropagation();
+
+  const remainingTasks = workspaceStore.state.tasks.filter((task) => task.taskId !== taskId);
+  const nextEventsByTaskId = { ...workspaceStore.state.eventsByTaskId };
+  delete nextEventsByTaskId[taskId];
+
+  workspaceStore.state.tasks = remainingTasks;
+  workspaceStore.state.eventsByTaskId = nextEventsByTaskId;
+
+  if (workspaceStore.state.selectedTaskId === taskId) {
+    workspaceStore.state.selectedTaskId = remainingTasks[0]?.taskId ?? null;
+  }
+
+  if (editingTaskId.value === taskId) {
+    cancelRename();
+  }
+
+  closeTaskMenu();
+}
+
+function handleRenameKeydown(event: KeyboardEvent) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    commitRename();
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelRename();
+  }
+}
+
+function isEditingTask(taskId: string) {
+  return editingTaskId.value === taskId;
+}
+
+function isTaskMenuOpen(taskId: string) {
+  return activeMenuTaskId.value === taskId;
+}
 
 function taskStatusLabel(task: AnalysisTask) {
   return statusMeta[task.status].label;
@@ -230,37 +331,41 @@ function processMarkerClasses() {
 
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
+
+function handleWindowClick() {
+  closeTaskMenu();
+}
+
+onMounted(() => {
+  window.addEventListener("click", handleWindowClick);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("click", handleWindowClick);
+});
 </script>
 
 <template>
   <AppShell>
-    <div class="grid min-h-[calc(100vh-32px)] gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-      <section class="flex min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(244,249,251,0.95))] shadow-[0_24px_60px_rgba(15,23,42,0.05)]">
-        <div class="border-b border-[#dbe7ed] px-5 py-5">
-          <div class="flex items-start justify-between gap-3">
+    <div :class="['grid h-full min-h-0 gap-3 overflow-hidden', workbenchGridClass]">
+      <section
+        v-if="historyPanelExpanded"
+        class="flex min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(244,249,251,0.95))] shadow-[0_24px_60px_rgba(15,23,42,0.05)]"
+      >
+        <div class="border-b border-[#dde8ee] px-4 py-4">
+          <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#16807d]">Conversation Workspace</div>
-              <h1 class="display-face mt-1 text-[2rem] font-semibold leading-none text-[#102038]">智能问数</h1>
-              <p class="mt-2 text-sm leading-7 text-[#64788c]">按对话组织分析任务，而不是在多个面板之间来回切换。</p>
+              <div class="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#16807d]">Recent Conversations</div>
+              <h2 class="mt-1 text-lg font-semibold text-[#102038]">最近对话</h2>
             </div>
             <button
               type="button"
-              class="rounded-[18px] border border-[#bde7e2] bg-[#ebfaf7] px-4 py-2 text-sm font-semibold text-[#127f7b] transition hover:bg-[#ddf6f1]"
-              @click="workspaceStore.resetDraft()"
+              class="rounded-full border border-[#d8e6ed] bg-white px-3 py-1.5 text-xs font-semibold text-[#5d7287] transition hover:bg-[#f7fafc]"
+              @click="toggleHistoryPanel"
             >
-              新建对话
+              收起
             </button>
           </div>
-
-          <label class="mt-4 block">
-            <span class="sr-only">搜索任务</span>
-            <input
-              :value="workspaceStore.state.searchText"
-              class="h-12 w-full rounded-[20px] border border-[#d8e5eb] bg-white px-4 text-sm text-[#14253d] outline-none transition placeholder:text-[#94a4b5] focus:border-[#6fcac0] focus:ring-4 focus:ring-[#e3f6f3]"
-              placeholder="搜索问题、Task ID 或 Trace ID"
-              @input="workspaceStore.setSearchText(($event.target as HTMLInputElement).value)"
-            />
-          </label>
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -277,7 +382,7 @@ function processMarkerClasses() {
                   :key="task.taskId"
                   type="button"
                   :class="[
-                    'w-full rounded-[24px] border px-4 py-4 text-left transition',
+                    'group relative w-full rounded-[24px] border px-4 py-4 text-left transition',
                     task.taskId === workspaceStore.state.selectedTaskId
                       ? 'border-[#bfe8e3] bg-[linear-gradient(135deg,rgba(232,250,247,0.98),rgba(242,248,255,0.98))] shadow-[0_14px_26px_rgba(15,139,141,0.08)]'
                       : 'border-[#dce8ee] bg-white/92 hover:border-[#cbdde6] hover:bg-white',
@@ -285,8 +390,74 @@ function processMarkerClasses() {
                   @click="workspaceStore.selectTask(task.taskId)"
                 >
                   <div class="flex items-start justify-between gap-3">
-                    <p class="line-clamp-2 text-sm font-semibold leading-6 text-[#102038]">{{ task.question }}</p>
-                    <StatusBadge :label="taskStatusLabel(task)" :tone="taskStatusTone(task)" />
+                    <div class="min-w-0 flex-1">
+                      <div v-if="isEditingTask(task.taskId)" class="space-y-2" @click.stop>
+                        <input
+                          v-model="editingTitle"
+                          class="h-10 w-full rounded-[14px] border border-[#c9dae3] bg-white px-3 text-sm text-[#102038] outline-none focus:border-[#6fcac0] focus:ring-2 focus:ring-[#e3f6f3]"
+                          @blur="commitRename"
+                          @keydown="handleRenameKeydown"
+                        />
+                      </div>
+                      <p v-else class="line-clamp-2 text-sm font-semibold leading-6 text-[#102038]">{{ task.question }}</p>
+                    </div>
+                    <div class="relative flex items-center" @click.stop>
+                      <div
+                        :class="[
+                          'transition-transform duration-200',
+                          isTaskMenuOpen(task.taskId) ? '-translate-x-1.5' : 'group-hover:-translate-x-1.5',
+                        ]"
+                      >
+                        <StatusBadge :label="taskStatusLabel(task)" :tone="taskStatusTone(task)" />
+                      </div>
+                      <button
+                        type="button"
+                        :class="[
+                          'flex h-8 items-center justify-center overflow-hidden rounded-full transition-all duration-200',
+                          isTaskMenuOpen(task.taskId)
+                            ? 'ml-2 w-8 border border-[#d8e6ed] bg-white text-[#6c8196] opacity-100 shadow-[0_6px_18px_rgba(15,23,42,0.06)]'
+                            : 'ml-0 w-0 border border-transparent bg-transparent text-transparent opacity-0 pointer-events-none group-hover:ml-2 group-hover:w-8 group-hover:border-[#d8e6ed] group-hover:bg-white group-hover:text-[#6c8196] group-hover:opacity-100 group-hover:pointer-events-auto group-hover:shadow-[0_6px_18px_rgba(15,23,42,0.06)]',
+                        ]"
+                        @click="toggleTaskMenu(task.taskId, $event)"
+                      >
+                        <svg viewBox="0 0 20 20" class="h-4 w-4 fill-current">
+                          <circle cx="5" cy="10" r="1.4" />
+                          <circle cx="10" cy="10" r="1.4" />
+                          <circle cx="15" cy="10" r="1.4" />
+                        </svg>
+                      </button>
+
+                      <div
+                        v-if="isTaskMenuOpen(task.taskId)"
+                        class="absolute right-0 top-10 z-20 min-w-[148px] rounded-[18px] border border-[#dbe7ed] bg-white p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)]"
+                      >
+                        <button
+                          type="button"
+                          class="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-sm font-medium text-[#102038] transition hover:bg-[#f4f8fa]"
+                          @click="startRename(task, $event)"
+                        >
+                          <svg viewBox="0 0 20 20" class="h-4 w-4 fill-none stroke-current stroke-[1.8]">
+                            <path d="m13.8 3.2 3 3-8.7 8.7-3.7.7.7-3.7Z" />
+                            <path d="M11.8 5.2 14.8 8.2" />
+                          </svg>
+                          <span>重命名</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+                          @click="deleteTask(task.taskId, $event)"
+                        >
+                          <svg viewBox="0 0 20 20" class="h-4 w-4 fill-none stroke-current stroke-[1.8]">
+                            <path d="M4.5 6.5h11" />
+                            <path d="M7.5 6.5v8" />
+                            <path d="M12.5 6.5v8" />
+                            <path d="M6.5 6.5 7 4.5h6l.5 2" />
+                            <path d="M6 6.5v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-9" />
+                          </svg>
+                          <span>删除对话</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <p class="mt-3 line-clamp-1 text-xs text-[#7f93a7]">{{ task.traceId }}</p>
                   <div class="mt-2 flex items-center justify-between gap-3 text-xs text-[#8a9cad]">
@@ -301,67 +472,81 @@ function processMarkerClasses() {
               v-if="!workspaceStore.groupedTasks.value.length"
               class="rounded-[24px] border border-dashed border-[#cadbe4] bg-[#f8fbfc] px-4 py-5 text-sm leading-7 text-[#65788d]"
             >
-              没有匹配到历史对话。可以清空搜索后重试，或者直接发起一个新问题。
-            </div>
-          </div>
-        </div>
-
-        <div class="border-t border-[#dbe7ed] px-4 py-4">
-          <div class="rounded-[24px] border border-[#dce8ee] bg-white/92 p-4">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <div class="text-sm font-semibold text-[#102038]">本次提问数据源</div>
-                <div class="mt-1 text-xs text-[#8293a5]">点选后会作为底部输入框的当前上下文。</div>
-              </div>
-              <RouterLink to="/datasets" class="text-xs font-semibold text-[#14807d]">管理</RouterLink>
-            </div>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <button
-                v-for="dataset in quickDatasets"
-                :key="dataset.id"
-                type="button"
-                :class="[
-                  'rounded-full border px-3 py-2 text-xs font-medium transition',
-                  workspaceStore.state.selectedDatasetIds.includes(dataset.id)
-                    ? 'border-[#bde7e2] bg-[#ebfaf7] text-[#127f7b]'
-                    : 'border-[#d8e5eb] bg-[#f7fafc] text-[#5f7285]',
-                ]"
-                @click="workspaceStore.toggleDataset(dataset.id)"
-              >
-                {{ dataset.datasetName }}
-              </button>
+              没有匹配到历史对话。可以直接在底部发起一个新问题。
             </div>
           </div>
         </div>
       </section>
 
       <section class="flex min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(244,249,251,0.98))] shadow-[0_24px_60px_rgba(15,23,42,0.05)]">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#dde8ee] px-4 py-3.5">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="rounded-full border border-[#d8e6ed] bg-white px-3 py-1 text-xs font-semibold text-[#5c7288]">对话工作台</span>
-            <StatusBadge v-if="workspaceStore.currentStatus.value" :label="workspaceStore.currentStatus.value.label" :tone="workspaceStore.currentStatus.value.tone" />
-            <StatusBadge :label="workspaceStore.currentConnection.value.label" :tone="workspaceStore.currentConnection.value.tone" />
-            <span v-if="selectedTask" class="rounded-full border border-[#d8e6ed] bg-white px-3 py-1 text-xs font-semibold text-[#5c7288]">
-              {{ selectedTask.taskId }}
-            </span>
+        <div class="border-b border-[#dde8ee] px-5 py-3">
+          <div class="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="flex h-9 w-9 items-center justify-center rounded-full border border-[#d8e6ed] bg-white text-[#4f6478] transition hover:bg-[#f7fafc]"
+                @click="toggleHistoryPanel"
+              >
+                <svg viewBox="0 0 20 20" class="h-4 w-4 fill-none stroke-current stroke-[1.8]">
+                  <rect x="2.5" y="3.5" width="15" height="13" rx="2" />
+                  <path d="M7 3.5v13" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="flex h-9 w-9 items-center justify-center rounded-full border border-[#d8e6ed] bg-white text-[#4f6478] transition hover:bg-[#f7fafc] disabled:cursor-not-allowed disabled:opacity-50"
+                @click="workspaceStore.resetDraft()"
+              >
+                <svg viewBox="0 0 20 20" class="h-4 w-4 fill-none stroke-current stroke-[1.8]">
+                  <path d="M10 4v12" />
+                  <path d="M4 10h12" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="truncate text-center text-sm font-semibold text-[#102038]">数据分析工作台</div>
+            <div />
+          </div>
+        </div>
+
+        <div class="border-b border-[#e3edf1] px-6 py-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="truncate text-xl font-semibold text-[#102038]">{{ currentConversationTitle }}</div>
+              <div class="mt-1 text-xs text-[#8194a7]">
+                {{ selectedTask ? selectedTask.traceId : "输入问题后会自动创建一条新对话" }}
+              </div>
+            </div>
+
+            <button
+              v-if="false"
+              type="button"
+              class="rounded-full border border-[#d8e6ed] bg-white px-3 py-1.5 text-xs font-semibold text-[#5d7287] transition hover:bg-[#f7fafc]"
+              @click="startRename(selectedTask)"
+            >
+              修改标题
+            </button>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
+          <div v-if="false" class="mt-3 flex flex-wrap gap-3">
+            <input
+              v-model="editingTitle"
+              class="h-11 min-w-[280px] flex-1 rounded-[16px] border border-[#c9dae3] bg-white px-4 text-sm text-[#102038] outline-none focus:border-[#6fcac0] focus:ring-2 focus:ring-[#e3f6f3]"
+              @keydown="handleRenameKeydown"
+            />
             <button
               type="button"
-              :disabled="!selectedTask"
-              class="rounded-[18px] border border-[#d8e6ed] bg-white px-3.5 py-2 text-xs font-semibold text-[#4c6279] transition hover:bg-[#f7fafc] disabled:cursor-not-allowed disabled:opacity-50"
-              @click="selectedTask && workspaceStore.copyTraceId(selectedTask.traceId)"
+              class="rounded-[16px] bg-[#16213a] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#111b31]"
+              @click="commitRename"
             >
-              {{ workspaceStore.state.copiedTraceId && selectedTask?.traceId === workspaceStore.state.copiedTraceId ? "已复制 Trace ID" : "复制 Trace ID" }}
+              保存
             </button>
             <button
               type="button"
-              :disabled="!selectedTask || workspaceStore.state.submitting"
-              class="rounded-[18px] border border-[#d8e6ed] bg-white px-3.5 py-2 text-xs font-semibold text-[#4c6279] transition hover:bg-[#f7fafc] disabled:cursor-not-allowed disabled:opacity-50"
-              @click="workspaceStore.retryCurrentTask()"
+              class="rounded-[16px] border border-[#d8e6ed] bg-white px-4 py-2.5 text-sm font-semibold text-[#4f6478] transition hover:bg-[#f7fafc]"
+              @click="cancelRename"
             >
-              重新执行
+              取消
             </button>
           </div>
         </div>
@@ -394,13 +579,13 @@ function processMarkerClasses() {
 
               <div class="min-w-0 flex-1 space-y-3">
                 <details
-                  class="max-w-[460px]"
+                  class="w-full"
                   :open="workspaceStore.state.sqlExpanded"
                   @toggle="workspaceStore.setSqlExpanded(($event.target as HTMLDetailsElement).open)"
                 >
                   <summary class="flex cursor-pointer list-none items-center gap-3 rounded-[18px] px-1 py-1 text-sm text-[#5f7388]">
                     <span :class="['flex h-7 w-7 items-center justify-center rounded-full border text-[13px] font-semibold', processMarkerClasses()]">
-                      {{ workspaceStore.state.sqlExpanded ? "−" : "✓" }}
+                      {{ workspaceStore.state.sqlExpanded ? "-" : "✓" }}
                     </span>
                     <span class="font-medium text-[#43586e]">{{ processPreview }}</span>
                     <svg
@@ -577,75 +762,36 @@ function processMarkerClasses() {
           </div>
 
           <div v-else class="flex h-full min-h-[420px] items-center justify-center px-4">
-            <div class="max-w-[720px] text-center">
-              <div class="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#16807d]">Conversation First</div>
-              <h2 class="display-face mt-3 text-[2.6rem] font-semibold leading-[1.04] text-[#102038]">把分析过程放回一条对话里</h2>
+            <div class="max-w-[680px] text-center">
+              <h2 class="display-face text-[2.4rem] font-semibold leading-[1.08] text-[#102038]">数据分析工作台</h2>
               <p class="mt-4 text-base leading-8 text-[#627588]">
-                这里不再堆叠很多模块。你只需要在底部输入问题，系统会按消息流返回结论、图表和提示，过程明细按需展开。
+                直接在底部输入问题，系统会按消息流返回结论、图表和提示。
               </p>
             </div>
           </div>
         </div>
 
-        <div class="border-t border-[#dde8ee] bg-[linear-gradient(180deg,rgba(255,255,255,0.74),rgba(239,247,249,0.96))] p-4">
-          <div class="mx-auto max-w-[980px] rounded-[28px] border border-[#dce8ee] bg-white/94 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              <span class="font-semibold uppercase tracking-[0.18em] text-[#8ca0b1]">当前数据源</span>
-              <span
-                v-for="dataset in selectedDatasets"
-                :key="dataset.id"
-                class="rounded-full border border-[#bfe8e3] bg-[#ebfaf7] px-3 py-1 font-semibold text-[#127f7b]"
+        <div class="bg-[linear-gradient(180deg,rgba(255,255,255,0.3),rgba(239,247,249,0.9))] px-4 pb-4 pt-2">
+          <div class="mx-auto max-w-[980px]">
+            <div class="relative">
+              <textarea
+                :value="workspaceStore.state.question"
+                rows="3"
+                class="w-full rounded-[26px] border border-[#d8e6ed] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbfc_100%)] px-4 py-3 pr-16 text-sm leading-7 text-[#102038] shadow-[0_14px_32px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-[#95a6b6] focus:border-[#6fcac0] focus:ring-4 focus:ring-[#e3f6f3]"
+                placeholder="例如：分析过去 12 个月企业营收趋势，并输出区域排名与渠道占比。"
+                @input="workspaceStore.setQuestion(($event.target as HTMLTextAreaElement).value)"
+              />
+              <button
+                type="button"
+                class="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#16213a] text-white transition hover:bg-[#111b31] disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="workspaceStore.state.submitting"
+                @click="workspaceStore.submitTask()"
               >
-                {{ dataset.datasetName }}
-              </span>
-              <span v-if="!selectedDatasets.length" class="text-[#8ca0b1]">尚未选择数据源</span>
-            </div>
-
-            <textarea
-              :value="workspaceStore.state.question"
-              rows="4"
-              class="mt-4 w-full rounded-[24px] border border-[#d8e6ed] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbfc_100%)] px-4 py-3 text-sm leading-7 text-[#102038] outline-none transition placeholder:text-[#95a6b6] focus:border-[#6fcac0] focus:ring-4 focus:ring-[#e3f6f3]"
-              placeholder="例如：分析过去 12 个月企业营收趋势，并输出区域排名与渠道占比。"
-              @input="workspaceStore.setQuestion(($event.target as HTMLTextAreaElement).value)"
-            />
-
-            <div class="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div class="text-xs font-semibold uppercase tracking-[0.18em] text-[#8ca0b1]">图表偏好</div>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <button
-                    v-for="item in chartOptions"
-                    :key="item.value"
-                    type="button"
-                    :class="[
-                      'rounded-full border px-3.5 py-2 text-xs font-semibold transition',
-                      workspaceStore.state.chartPreferences.includes(item.value)
-                        ? 'border-[#bde7e2] bg-[#ebfaf7] text-[#127f7b]'
-                        : 'border-[#d8e6ed] bg-[#f7fafc] text-[#5f7285]',
-                    ]"
-                    @click="workspaceStore.toggleChartPreference(item.value)"
-                  >
-                    {{ item.label }}
-                  </button>
-                </div>
-              </div>
-
-              <div class="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  class="rounded-[20px] border border-[#d8e6ed] bg-white px-5 py-3 text-sm font-medium text-[#4f6478] transition hover:bg-[#f7fafc]"
-                  @click="workspaceStore.resetDraft()"
-                >
-                  清空草稿
-                </button>
-                <button
-                  type="button"
-                  class="rounded-[20px] bg-[#16213a] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#111b31]"
-                  @click="workspaceStore.submitTask()"
-                >
-                  {{ workspaceStore.state.submitting ? "正在提交分析..." : "发送分析请求" }}
-                </button>
-              </div>
+                <svg viewBox="0 0 20 20" class="h-4 w-4 fill-none stroke-current stroke-[2]">
+                  <path d="M10 15V5" />
+                  <path d="m5.5 9.5 4.5-4.5 4.5 4.5" />
+                </svg>
+              </button>
             </div>
 
             <p v-if="workspaceStore.state.validationError" class="mt-3 text-sm text-rose-600">

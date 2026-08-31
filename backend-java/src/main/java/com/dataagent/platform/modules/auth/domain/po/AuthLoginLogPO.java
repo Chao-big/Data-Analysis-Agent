@@ -32,14 +32,8 @@ public class AuthLoginLogPO implements Serializable {
     @TableField("username")
     private String username;
 
-    @TableField("login_result")
-    private String loginResult;
-
-    @TableField("failure_reason")
-    private String failureReason;
-
-    @TableField("client_ip")
-    private String clientIp;
+    @TableField("client_public_ip")
+    private String clientPublicIp;
 
     @TableField("user_agent")
     private String userAgent;

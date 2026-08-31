@@ -93,3 +93,10 @@ storage:
     access-key-id: ${OSS_ACCESS_KEY_ID:your-access-key-id}
     access-key-secret: ${OSS_ACCESS_KEY_SECRET:your-access-key-secret}
     public-domain: ${OSS_PUBLIC_DOMAIN:}
+auth:
+  session:
+    refresh-token-cookie-name: data-analysis-agent-refresh-token
+    refresh-token-cookie-path: /api/auth
+    refresh-token-cookie-secure: false
+    refresh-token-cookie-same-site: Lax
+    inactivity-timeout: 48h

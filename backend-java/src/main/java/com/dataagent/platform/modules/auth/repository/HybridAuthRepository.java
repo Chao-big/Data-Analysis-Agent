@@ -1,6 +1,7 @@
 package com.dataagent.platform.modules.auth.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dataagent.platform.modules.auth.domain.dto.AuthRegisterDTO;
 import com.dataagent.platform.modules.auth.domain.model.AuthUser;
 import com.dataagent.platform.modules.auth.domain.po.AuthUserPO;
@@ -8,6 +9,7 @@ import com.dataagent.platform.modules.auth.mapper.AuthUserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -27,7 +29,7 @@ public class HybridAuthRepository implements AuthRepository {
                     "https://static.local/avatar/analyst01.png",
                     "analyst01@example.com",
                     "13800000001",
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ANALYST"),
@@ -42,7 +44,7 @@ public class HybridAuthRepository implements AuthRepository {
                     "https://static.local/avatar/admin01.png",
                     "admin01@example.com",
                     "13800000002",
-                    "UNKNOWN",
+                    (short) 0,
                     "ACTIVE",
                     "tenant-demo",
                     Set.of("ADMIN"),
@@ -157,11 +159,35 @@ public class HybridAuthRepository implements AuthRepository {
         user.setAvatarUrl(normalize(request.avatarUrl()));
         user.setEmail(normalize(request.email()));
         user.setPhone(normalize(request.phone()));
-        user.setGender(normalize(request.gender()));
+        user.setGender(request.gender() == null ? (short) 0 : request.gender());
         user.setStatus("ACTIVE");
         user.setRemark(normalize(request.remark()));
         authUserMapper.insert(user);
         return toDomain(user);
+    }
+
+    @Override
+    public void updateLoginSuccess(String userId, LocalDateTime loginAt, String loginIp) {
+        String normalizedUserId = normalize(userId);
+        if (normalizedUserId == null || loginAt == null) {
+            return;
+        }
+
+        try {
+            Long numericUserId = Long.valueOf(normalizedUserId);
+            LambdaUpdateWrapper<AuthUserPO> updateWrapper = new LambdaUpdateWrapper<AuthUserPO>()
+                    .eq(AuthUserPO::getId, numericUserId)
+                    .set(AuthUserPO::getLastLoginAt, loginAt);
+
+            String normalizedLoginIp = normalize(loginIp);
+            if (normalizedLoginIp != null) {
+                updateWrapper.set(AuthUserPO::getLastLoginIp, normalizedLoginIp);
+            }
+
+            authUserMapper.update(null, updateWrapper);
+        } catch (NumberFormatException ignored) {
+            // Demo fallback users do not map to the database table.
+        }
     }
 
     private AuthUser toDomain(AuthUserPO user) {
